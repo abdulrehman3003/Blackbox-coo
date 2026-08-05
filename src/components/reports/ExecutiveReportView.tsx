@@ -342,25 +342,16 @@ export default function ExecutiveReportView({ report, onClose }: Props) {
           {/* ── At-risk Customers + Inventory Low Stock ── */}
           <div className="grid lg:grid-cols-2 gap-6">
             <section className="p-5 rounded-2xl bg-surface/40 border border-card-border">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
-                  <Users size={16} className="text-warning" />
-                  At-Risk Customers
-                </h3>
-                {report.salesAnalysis.atRiskCustomers.length > 0 && (
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-warning/10 text-warning font-medium">
-                    {report.salesAnalysis.atRiskCustomers.length}
-                  </span>
-                )}
-              </div>
+              <h3 className="text-sm font-semibold text-text-primary mb-3 flex items-center gap-2">
+                <Users size={16} className="text-warning" />
+                At-Risk Customers
+              </h3>
               {report.salesAnalysis.atRiskCustomers.length > 0 ? (
-                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                  {report.salesAnalysis.atRiskCustomers.map((c, i) => (
+                <div className="space-y-2">
+                  {report.salesAnalysis.atRiskCustomers.slice(0, 5).map((c, i) => (
                     <div key={i} className="flex items-center justify-between p-3 rounded-xl bg-surface">
                       <span className="text-sm text-text-primary">{c.name}</span>
-                      <span className="text-xs text-text-muted">
-                        {c.daysSinceLastVisit >= 999 ? "No recent visit" : `${c.daysSinceLastVisit} days ago`}
-                      </span>
+                      <span className="text-xs text-text-muted">{c.daysSinceLastVisit} days ago</span>
                     </div>
                   ))}
                 </div>
@@ -370,23 +361,16 @@ export default function ExecutiveReportView({ report, onClose }: Props) {
             </section>
 
             <section className="p-5 rounded-2xl bg-surface/40 border border-card-border">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
-                  <Package size={16} className="text-warning" />
-                  Low Stock Items
-                </h3>
-                {report.inventoryHealth.lowStock.length > 0 && (
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-warning/10 text-warning font-medium">
-                    {report.inventoryHealth.lowStock.length} items
-                  </span>
-                )}
-              </div>
+              <h3 className="text-sm font-semibold text-text-primary mb-3 flex items-center gap-2">
+                <Package size={16} className="text-warning" />
+                Low Stock Items
+              </h3>
               {report.inventoryHealth.lowStock.length > 0 ? (
-                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                  {report.inventoryHealth.lowStock.map((item, i) => (
+                <div className="space-y-2">
+                  {report.inventoryHealth.lowStock.slice(0, 5).map((item, i) => (
                     <div key={i} className="flex items-center justify-between p-3 rounded-xl bg-surface">
                       <div>
-                        <span className="text-sm text-text-primary font-medium">{item.name}</span>
+                        <span className="text-sm text-text-primary">{item.name}</span>
                         <span className="text-xs text-text-muted ml-2">Reorder: {item.suggestedReorder} units</span>
                       </div>
                       <span className={`text-sm font-semibold ${item.quantity === 0 ? "text-danger" : "text-warning"}`}>
