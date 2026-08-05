@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { DollarSign, TrendingDown, PieChart, Calendar, ArrowUpRight, Plus } from "lucide-react";
+import { DollarSign, TrendingDown, PieChart, Calendar, ArrowUpRight, Plus, Pencil, Trash2 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
 import PageHeader from "../components/ui/PageHeader";
@@ -13,6 +13,7 @@ interface ExpenseRecord {
   description: string;
   amount: number;
   incurred_at: string;
+  vendor?: string;
 }
 
 const CATEGORIES = [
@@ -42,6 +43,10 @@ export default function ExpensesPage() {
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<ExpenseRecord | null>(null);
+  const [deletingItem, setDeletingItem] = useState<ExpenseRecord | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
   const [form, setForm] = useState({ category: CATEGORIES[0], amount: "", description: "", vendor: "", incurred_at: today() });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +55,7 @@ export default function ExpensesPage() {
     if (!companyId) return;
     const { data } = await supabase
       .from("expenses")
-      .select("id, category, description, amount, incurred_at")
+      .select("id, category, description, amount, incurred_at, vendor")
       .eq("company_id", companyId)
       .order("incurred_at", { ascending: false })
       .limit(50);
@@ -78,6 +83,39 @@ export default function ExpensesPage() {
     (e: { target: { value: string } }) =>
       setForm((f) => ({ ...f, [key]: e.target.value }));
 
+  const handleOpenAdd = () => {
+    setEditingItem(null);
+    setForm({ category: CATEGORIES[0], amount: "", description: "", vendor: "", incurred_at: today() });
+    setError(null);
+    setModalOpen(true);
+  };
+
+  const handleOpenEdit = (item: ExpenseRecord) => {
+    setEditingItem(item);
+    setForm({
+      category: item.category || CATEGORIES[0],
+      amount: String(item.amount),
+      description: item.description || "",
+      vendor: item.vendor || "",
+      incurred_at: item.incurred_at ? item.incurred_at.slice(0, 10) : today(),
+    });
+    setError(null);
+    setModalOpen(true);
+  };
+
+  const handleDelete = async () => {
+    if (!deletingItem) return;
+    setDeleting(true);
+    const { error: delError } = await supabase.from("expenses").delete().eq("id", deletingItem.id);
+    setDeleting(false);
+    if (delError) {
+      setError("Failed to delete expense");
+      return;
+    }
+    setDeletingItem(null);
+    await loadExpenses();
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!companyId || !form.amount || Number(form.amount) <= 0) {
@@ -86,20 +124,30 @@ export default function ExpensesPage() {
     }
     setSaving(true);
     setError(null);
-    const { error: insertError } = await supabase.from("expenses").insert({
+
+    const payload = {
       company_id: companyId,
       category: form.category,
       amount: Number(form.amount),
       description: form.description.trim() || null,
       vendor: form.vendor.trim() || null,
       incurred_at: form.incurred_at,
-    });
+    };
+
+    let req;
+    if (editingItem) {
+      req = await supabase.from("expenses").update(payload).eq("id", editingItem.id);
+    } else {
+      req = await supabase.from("expenses").insert(payload);
+    }
+
     setSaving(false);
-    if (insertError) {
+    if (req.error) {
       setError("We couldn't save that expense — please try again.");
       return;
     }
     setModalOpen(false);
+    setEditingItem(null);
     setForm({ category: CATEGORIES[0], amount: "", description: "", vendor: "", incurred_at: today() });
     await loadExpenses();
   };
@@ -115,7 +163,7 @@ export default function ExpensesPage() {
         title="Expenses"
         subtitle="Monitor costs, categorize spending, and track burn rate"
         actions={
-          <Button variant="primary" size="sm" icon={Plus} onClick={() => setModalOpen(true)}>
+          <Button variant="primary" size="sm" icon={Plus} onClick={handleOpenAdd}>
             Add Expense
           </Button>
         }
@@ -217,7 +265,8 @@ export default function ExpensesPage() {
                   <th className="text-left py-2 pr-4 font-medium">Description</th>
                   <th className="text-left py-2 px-4 font-medium">Category</th>
                   <th className="text-right py-2 px-4 font-medium">Date</th>
-                  <th className="text-right py-2 pl-4 font-medium">Amount</th>
+                  <th className="text-right py-2 px-4 font-medium">Amount</th>
+                  <th className="text-right py-2 pl-4 font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -232,8 +281,26 @@ export default function ExpensesPage() {
                     <td className="py-3 px-4 text-right text-text-muted">
                       {new Date(e.incurred_at).toLocaleDateString()}
                     </td>
-                    <td className="py-3 pl-4 text-right text-text-primary font-semibold text-danger">
+                    <td className="py-3 px-4 text-right text-text-primary font-semibold text-danger">
                       -${Number(e.amount).toFixed(2)}
+                    </td>
+                    <td className="py-3 pl-4 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => handleOpenEdit(e)}
+                          className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface transition-colors"
+                          title="Edit expense"
+                        >
+                          <Pencil size={15} />
+                        </button>
+                        <button
+                          onClick={() => setDeletingItem(e)}
+                          className="p-1.5 rounded-lg text-text-muted hover:text-danger hover:bg-danger/10 transition-colors"
+                          title="Delete expense"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -243,19 +310,25 @@ export default function ExpensesPage() {
         )}
       </section>
 
-      {/* Add expense modal */}
+      {/* Add / Edit expense modal */}
       <Modal
         open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        title="Add Expense"
-        description="Record a new business expense"
+        onClose={() => {
+          setModalOpen(false);
+          setEditingItem(null);
+        }}
+        title={editingItem ? "Edit Expense" : "Add Expense"}
+        description={editingItem ? "Update expense details" : "Record a new business expense"}
         footer={
           <>
-            <Button variant="ghost" size="sm" onClick={() => setModalOpen(false)}>
+            <Button variant="ghost" size="sm" onClick={() => {
+              setModalOpen(false);
+              setEditingItem(null);
+            }}>
               Cancel
             </Button>
             <Button variant="primary" size="sm" type="submit" form="add-expense-form" loading={saving}>
-              {saving ? "Saving…" : "Add Expense"}
+              {saving ? "Saving…" : editingItem ? "Update Expense" : "Add Expense"}
             </Button>
           </>
         }
@@ -314,6 +387,31 @@ export default function ExpensesPage() {
             </p>
           )}
         </form>
+      </Modal>
+
+      {/* Delete confirmation modal */}
+      <Modal
+        open={Boolean(deletingItem)}
+        onClose={() => setDeletingItem(null)}
+        title="Delete Expense"
+        description="Are you sure you want to delete this expense record? This action cannot be undone."
+        footer={
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setDeletingItem(null)}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" onClick={handleDelete} loading={deleting} className="!bg-danger !text-white hover:!bg-danger/80">
+              {deleting ? "Deleting…" : "Delete Expense"}
+            </Button>
+          </>
+        }
+      >
+        {deletingItem && (
+          <div className="p-3 rounded-xl bg-surface/50 text-sm space-y-1">
+            <p className="text-text-primary font-medium">{deletingItem.description || deletingItem.category}</p>
+            <p className="text-xs text-danger font-semibold">-${Number(deletingItem.amount).toFixed(2)}</p>
+          </div>
+        )}
       </Modal>
     </div>
   );

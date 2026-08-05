@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Package, AlertTriangle, RefreshCw, TrendingUp, Plus, ArrowUpRight } from "lucide-react";
+import { Package, AlertTriangle, RefreshCw, TrendingUp, Plus, ArrowUpRight, Pencil, Trash2 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
 import PageHeader from "../components/ui/PageHeader";
@@ -15,6 +15,7 @@ interface InventoryItem {
   quantity: number;
   reorder_level: number;
   unit_cost: number;
+  supplier?: string;
   updated_at: string;
 }
 
@@ -34,6 +35,10 @@ export default function InventoryPage() {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+  const [deletingItem, setDeletingItem] = useState<InventoryItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +47,7 @@ export default function InventoryPage() {
     if (!companyId) return;
     const { data } = await supabase
       .from("inventory")
-      .select("id, name, sku, category, quantity, reorder_level, unit_cost, updated_at")
+      .select("id, name, sku, category, quantity, reorder_level, unit_cost, supplier, updated_at")
       .eq("company_id", companyId)
       .order("updated_at", { ascending: false });
     setItems((data ?? []) as InventoryItem[]);
@@ -56,6 +61,41 @@ export default function InventoryPage() {
   const set = (key: keyof typeof EMPTY_FORM) => (e: { target: { value: string } }) =>
     setForm((f) => ({ ...f, [key]: e.target.value }));
 
+  const handleOpenAdd = () => {
+    setEditingItem(null);
+    setForm({ ...EMPTY_FORM });
+    setError(null);
+    setModalOpen(true);
+  };
+
+  const handleOpenEdit = (item: InventoryItem) => {
+    setEditingItem(item);
+    setForm({
+      name: item.name || "",
+      sku: item.sku || "",
+      category: item.category || "General",
+      quantity: String(item.quantity ?? 0),
+      reorder_level: String(item.reorder_level ?? 10),
+      unit_cost: String(item.unit_cost ?? 0),
+      supplier: item.supplier || "",
+    });
+    setError(null);
+    setModalOpen(true);
+  };
+
+  const handleDelete = async () => {
+    if (!deletingItem) return;
+    setDeleting(true);
+    const { error: delError } = await supabase.from("inventory").delete().eq("id", deletingItem.id);
+    setDeleting(false);
+    if (delError) {
+      setError("Failed to delete product");
+      return;
+    }
+    setDeletingItem(null);
+    await loadItems();
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!companyId || !form.name.trim()) {
@@ -64,7 +104,8 @@ export default function InventoryPage() {
     }
     setSaving(true);
     setError(null);
-    const { error: insertError } = await supabase.from("inventory").insert({
+
+    const payload = {
       company_id: companyId,
       name: form.name.trim(),
       sku: form.sku.trim() || null,
@@ -73,13 +114,22 @@ export default function InventoryPage() {
       reorder_level: Number(form.reorder_level) || 0,
       unit_cost: Number(form.unit_cost) || 0,
       supplier: form.supplier.trim() || null,
-    });
+    };
+
+    let req;
+    if (editingItem) {
+      req = await supabase.from("inventory").update(payload).eq("id", editingItem.id);
+    } else {
+      req = await supabase.from("inventory").insert(payload);
+    }
+
     setSaving(false);
-    if (insertError) {
+    if (req.error) {
       setError("We couldn't save that product — please try again.");
       return;
     }
     setModalOpen(false);
+    setEditingItem(null);
     setForm({ ...EMPTY_FORM });
     await loadItems();
   };
@@ -95,7 +145,7 @@ export default function InventoryPage() {
         title="Inventory"
         subtitle="Manage stock levels, reorder points, and product catalog"
         actions={
-          <Button variant="primary" size="sm" icon={Plus} onClick={() => setModalOpen(true)}>
+          <Button variant="primary" size="sm" icon={Plus} onClick={handleOpenAdd}>
             Add Product
           </Button>
         }
@@ -201,7 +251,8 @@ export default function InventoryPage() {
                   <th className="text-left py-2 px-4 font-medium">Category</th>
                   <th className="text-right py-2 px-4 font-medium">Qty</th>
                   <th className="text-right py-2 px-4 font-medium">Price</th>
-                  <th className="text-right py-2 pl-4 font-medium">Value</th>
+                  <th className="text-right py-2 px-4 font-medium">Value</th>
+                  <th className="text-right py-2 pl-4 font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -216,7 +267,7 @@ export default function InventoryPage() {
                       }`}
                     >
                       <td className="py-3 pr-4 text-text-primary font-medium">{item.name}</td>
-                      <td className="py-3 px-4 text-text-muted text-xs font-mono">{item.sku}</td>
+                      <td className="py-3 px-4 text-text-muted text-xs font-mono">{item.sku || "–"}</td>
                       <td className="py-3 px-4 text-text-secondary">{item.category}</td>
                       <td className="py-3 px-4 text-right">
                         <span className={`font-semibold ${isOut ? "text-danger" : isLow ? "text-warning" : "text-text-primary"}`}>
@@ -225,8 +276,26 @@ export default function InventoryPage() {
                         <span className="text-text-muted text-xs ml-1">/ {item.reorder_level}</span>
                       </td>
                       <td className="py-3 px-4 text-right text-text-muted">${Number(item.unit_cost).toFixed(2)}</td>
-                      <td className="py-3 pl-4 text-right text-text-primary font-semibold">
+                      <td className="py-3 px-4 text-right text-text-primary font-semibold">
                         ${(item.quantity * Number(item.unit_cost)).toFixed(2)}
+                      </td>
+                      <td className="py-3 pl-4 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => handleOpenEdit(item)}
+                            className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface transition-colors"
+                            title="Edit product"
+                          >
+                            <Pencil size={15} />
+                          </button>
+                          <button
+                            onClick={() => setDeletingItem(item)}
+                            className="p-1.5 rounded-lg text-text-muted hover:text-danger hover:bg-danger/10 transition-colors"
+                            title="Delete product"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -237,19 +306,25 @@ export default function InventoryPage() {
         )}
       </section>
 
-      {/* Add product modal */}
+      {/* Add / Edit product modal */}
       <Modal
         open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        title="Add Product"
-        description="Create a new inventory item"
+        onClose={() => {
+          setModalOpen(false);
+          setEditingItem(null);
+        }}
+        title={editingItem ? "Edit Product" : "Add Product"}
+        description={editingItem ? "Update product details" : "Create a new inventory item"}
         footer={
           <>
-            <Button variant="ghost" size="sm" onClick={() => setModalOpen(false)}>
+            <Button variant="ghost" size="sm" onClick={() => {
+              setModalOpen(false);
+              setEditingItem(null);
+            }}>
               Cancel
             </Button>
             <Button variant="primary" size="sm" type="submit" form="add-product-form" loading={saving}>
-              {saving ? "Saving…" : "Add Product"}
+              {saving ? "Saving…" : editingItem ? "Update Product" : "Add Product"}
             </Button>
           </>
         }
@@ -276,8 +351,12 @@ export default function InventoryPage() {
             <Field label="Category" htmlFor="inv-category">
               <SelectInput id="inv-category" value={form.category} onChange={set("category")}>
                 <option>General</option>
-                <option>Ingredients</option>
+                <option>Coffee</option>
+                <option>Dairy</option>
+                <option>Alternatives</option>
+                <option>Syrups</option>
                 <option>Packaging</option>
+                <option>Food</option>
                 <option>Equipment</option>
                 <option>Beverages</option>
                 <option>Snacks</option>
@@ -330,6 +409,31 @@ export default function InventoryPage() {
             </p>
           )}
         </form>
+      </Modal>
+
+      {/* Delete confirmation modal */}
+      <Modal
+        open={Boolean(deletingItem)}
+        onClose={() => setDeletingItem(null)}
+        title="Delete Product"
+        description="Are you sure you want to delete this product? This action cannot be undone."
+        footer={
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setDeletingItem(null)}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" onClick={handleDelete} loading={deleting} className="!bg-danger !text-white hover:!bg-danger/80">
+              {deleting ? "Deleting…" : "Delete Product"}
+            </Button>
+          </>
+        }
+      >
+        {deletingItem && (
+          <div className="p-3 rounded-xl bg-surface/50 text-sm space-y-1">
+            <p className="text-text-primary font-medium">{deletingItem.name}</p>
+            <p className="text-xs text-text-muted">SKU: {deletingItem.sku || "N/A"} | Qty: {deletingItem.quantity}</p>
+          </div>
+        )}
       </Modal>
     </div>
   );

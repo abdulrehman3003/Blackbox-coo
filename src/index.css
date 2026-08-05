@@ -44,6 +44,11 @@ body {
   min-height: 100vh;
 }
 
+select option {
+  background-color: #121215;
+  color: #ffffff;
+}
+
 /* Central subtle radial glow (Vercel/Linear style) */
 body::before {
   content: '';
