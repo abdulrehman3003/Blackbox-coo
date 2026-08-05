@@ -1,14 +1,24 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
-import { isSupabaseConfigured } from "../../lib/supabase";
+import { useAuth } from "../../hooks/useAuth";
+import Spinner from "../ui/Spinner";
 
 /**
- * Placeholder auth guard — will be wired to Supabase sessions in task 3.
- * For now, env-configured Supabase means "authenticated" so pages are reachable.
+ * Auth guard — redirects to /login when there's no active session.
+ * Shows a full-screen loader while the session is being restored.
  */
 export default function ProtectedRoute() {
+  const { user, loading } = useAuth();
   const location = useLocation();
 
-  if (!isSupabaseConfigured()) {
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-bg flex items-center justify-center">
+        <Spinner size={28} />
+      </div>
+    );
+  }
+
+  if (!user) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
