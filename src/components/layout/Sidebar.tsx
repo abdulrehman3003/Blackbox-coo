@@ -14,6 +14,7 @@ import {
   UploadCloud,
   FileText,
   Wallet,
+  Settings,
 } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "../../hooks/useAuth";
@@ -31,6 +32,7 @@ const mainNav = [
 const secondaryNav = [
   { to: "/upload", label: "Upload Data", icon: UploadCloud },
   { to: "/integrations", label: "Integrations", icon: Plug },
+  { to: "/settings", label: "Settings", icon: Settings },
 ];
 
 export default function Sidebar() {
@@ -124,7 +126,12 @@ export default function Sidebar() {
         </button>
 
         {/* User profile */}
-        <div className="flex items-center gap-3 px-3 py-2.5">
+        <NavLink
+          to="/profile"
+          onClick={() => setMobileOpen(false)}
+          className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-surface-hover transition-colors cursor-pointer"
+          aria-label="View your profile"
+        >
           <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center text-accent text-xs font-bold shrink-0">
             {initials}
           </div>
@@ -133,14 +140,18 @@ export default function Sidebar() {
             <p className="text-xs text-text-muted truncate">{profile?.role ?? "owner"}</p>
           </div>
           <button
-            onClick={signOut}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              signOut();
+            }}
             className="text-text-muted hover:text-danger transition-colors p-1 cursor-pointer"
             aria-label="Sign out"
             title="Sign out"
           >
             <LogOut size={14} />
           </button>
-        </div>
+        </NavLink>
       </div>
     </nav>
   );

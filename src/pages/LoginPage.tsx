@@ -17,11 +17,13 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resetSent, setResetSent] = useState(false);
+  const [signupSent, setSignupSent] = useState(false);
 
   const switchMode = (m: AuthMode) => {
     setMode(m);
     setError(null);
     setResetSent(false);
+    setSignupSent(false);
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -45,8 +47,16 @@ export default function LoginPage() {
           setLoading(false);
           return;
         }
-        const { error: err } = await signUp(email.trim(), password, fullName.trim());
-        if (err) setError(err.message);
+        const { error: err, data } = await signUp(email.trim(), password, fullName.trim());
+        if (err) {
+          setError(err.message);
+        } else if (data && !(data as { session: unknown }).session) {
+          // Email confirmation required — show the check-your-email state
+          setSignupSent(true);
+          setMode("login");
+          setEmail("");
+          setPassword("");
+        }
       } else {
         const { error: err } = await resetPassword(email.trim());
         if (err) {
@@ -184,6 +194,13 @@ export default function LoginPage() {
             </div>
           )}
 
+          {signupSent && (
+            <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-success/10 border border-success/30 text-success text-xs">
+              <CheckCircle2 size={14} className="shrink-0" />
+              Almost there! Check your inbox to confirm your email, then sign in to set up your company.
+            </div>
+          )}
+
           <Button
             type="submit"
             variant="primary"
@@ -209,7 +226,7 @@ export default function LoginPage() {
           {mode === "signup" && (
             <div className="flex items-center gap-1.5 text-xs text-text-muted justify-center">
               <Sparkles size={12} className="text-accent" />
-              Your company workspace is created automatically
+              Free to start — set up your company in a few steps
             </div>
           )}
 

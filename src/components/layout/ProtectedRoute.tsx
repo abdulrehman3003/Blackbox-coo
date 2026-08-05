@@ -3,11 +3,12 @@ import { useAuth } from "../../hooks/useAuth";
 import Spinner from "../ui/Spinner";
 
 /**
- * Auth guard — redirects to /login when there's no active session.
+ * Auth guard — redirects to /login when there's no active session,
+ * and to /onboarding when the user hasn't set up a company yet.
  * Shows a full-screen loader while the session is being restored.
  */
 export default function ProtectedRoute() {
-  const { user, loading } = useAuth();
+  const { user, loading, onboardingRequired } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -20,6 +21,17 @@ export default function ProtectedRoute() {
 
   if (!user) {
     return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  // Users without a company must complete onboarding first.
+  // The onboarding route itself is exempt from this redirect.
+  if (onboardingRequired && location.pathname !== "/onboarding") {
+    return <Navigate to="/onboarding" replace />;
+  }
+
+  // Users who already have a company shouldn't see onboarding.
+  if (!onboardingRequired && location.pathname === "/onboarding") {
+    return <Navigate to="/dashboard" replace />;
   }
 
   return <Outlet />;

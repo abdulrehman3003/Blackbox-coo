@@ -4,6 +4,8 @@ import AppShell from "./components/layout/AppShell";
 import ProtectedRoute from "./components/layout/ProtectedRoute";
 import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
+import UpdatePasswordPage from "./pages/UpdatePasswordPage";
+import OnboardingPage from "./pages/OnboardingPage";
 import DashboardPage from "./pages/DashboardPage";
 import TasksPage from "./pages/TasksPage";
 import TeamPage from "./pages/TeamPage";
@@ -15,6 +17,8 @@ import InventoryPage from "./pages/InventoryPage";
 import CustomersPage from "./pages/CustomersPage";
 import ReportsPage from "./pages/ReportsPage";
 import UploadPage from "./pages/UploadPage";
+import ProfilePage from "./pages/ProfilePage";
+import SettingsPage from "./pages/SettingsPage";
 
 export default function App() {
   return (
@@ -24,9 +28,14 @@ export default function App() {
           {/* Public routes */}
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/update-password" element={<UpdatePasswordPage />} />
 
           {/* Protected routes — wrapped in app shell */}
           <Route element={<ProtectedRoute />}>
+            {/* Onboarding — full screen, no shell */}
+            <Route path="/onboarding" element={<OnboardingPage />} />
+
+            {/* App shell routes */}
             <Route element={<AppShell />}>
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/sales" element={<SalesPage />} />
@@ -39,6 +48,8 @@ export default function App() {
               <Route path="/assistant" element={<AssistantPage />} />
               <Route path="/integrations" element={<IntegrationsPage />} />
               <Route path="/upload" element={<UploadPage />} />
+              <Route path="/profile" element={<ProfilePage />} />
+              <Route path="/settings" element={<SettingsPage />} />
             </Route>
           </Route>
         </Routes>
