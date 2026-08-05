@@ -43,18 +43,31 @@ export async function runSalesAgent(companyId: string): Promise<SalesResult> {
 
   // ── At-risk customers (churn detection) ──
   const atRiskCustomers: { name: string; daysSinceLastVisit: number; reason: string }[] = [];
+
+  // Build a map of customer ID -> latest sale date
+  const customerLatestSale = new Map<string, string>();
+  (sales ?? []).forEach((s: any) => {
+    if (s.customer_id) {
+      const existing = customerLatestSale.get(s.customer_id);
+      if (!existing || new Date(s.sold_at) > new Date(existing)) {
+        customerLatestSale.set(s.customer_id, s.sold_at);
+      }
+    }
+  });
+
   (customers ?? []).forEach((c) => {
-    if (!c.last_visit_at) {
-      atRiskCustomers.push({
-        name: c.name,
-        daysSinceLastVisit: 999,
-        reason: "Never returned — no visit recorded",
-      });
+    const latestSaleDate = customerLatestSale.get(c.id) || c.last_visit_at;
+    if (!latestSaleDate) {
+      // Brand new customer without purchase history — not churned/at-risk
       return;
     }
+
+    const visitDate = new Date(latestSaleDate);
     const daysSince = Math.floor(
-      (now.getTime() - new Date(c.last_visit_at).getTime()) / (1000 * 60 * 60 * 24),
+      (now.getTime() - visitDate.getTime()) / (1000 * 60 * 60 * 24),
     );
+
+    // Only mark as at-risk if they used to visit but haven't visited in 60+ days
     if (daysSince > 60) {
       atRiskCustomers.push({
         name: c.name,
@@ -63,6 +76,8 @@ export async function runSalesAgent(companyId: string): Promise<SalesResult> {
       });
     }
   });
+
+  atRiskCustomers.sort((a, b) => b.daysSinceLastVisit - a.daysSinceLastVisit);
 
   // ── Upsell recommendations from item frequency ──
   const itemFreq = new Map<string, number>();

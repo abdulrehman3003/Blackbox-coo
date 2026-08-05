@@ -1,11 +1,12 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { ShoppingCart, TrendingUp, DollarSign, Receipt, ArrowUpRight, Pencil, Trash2 } from "lucide-react";
+import { ShoppingCart, TrendingUp, DollarSign, Receipt, ArrowUpRight, Pencil, Trash2, Search, Download } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
 import PageHeader from "../components/ui/PageHeader";
 import Button from "../components/ui/Button";
 import Modal from "../components/ui/Modal";
 import { Field, TextInput, SelectInput } from "../components/ui/FormField";
+import { exportToCsv } from "../lib/exportCsv";
 
 interface SaleRecord {
   id: string;
@@ -54,6 +55,10 @@ export default function SalesPage() {
 
   // Modal states
   const [modalOpen, setModalOpen] = useState(false);
+  const [viewAllOpen, setViewAllOpen] = useState(false);
+  const [viewSearch, setViewSearch] = useState("");
+  const [viewCategory, setViewCategory] = useState("ALL");
+
   const [editingItem, setEditingItem] = useState<SaleRecord | null>(null);
   const [deletingItem, setDeletingItem] = useState<SaleRecord | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -69,7 +74,7 @@ export default function SalesPage() {
       .select("id, item_name, category, quantity, amount, unit_price, sold_at, customer_id, customers(name)")
       .eq("company_id", companyId)
       .order("sold_at", { ascending: false })
-      .limit(50);
+      .limit(500);
     const rows = (data ?? []).map((r: any) => ({
       id: r.id,
       item_name: r.item_name,
@@ -236,15 +241,35 @@ export default function SalesPage() {
     await loadSales();
   };
 
+  const handleExportCsv = () => {
+    if (!sales.length) return;
+    const exportData = sales.map((s) => ({
+      Item: s.item_name,
+      Category: s.category,
+      Customer: s.customer_name || "Walk-in",
+      Quantity: s.quantity,
+      Amount: s.amount,
+      Date: s.sold_at ? new Date(s.sold_at).toLocaleDateString() : "N/A",
+    }));
+    exportToCsv("sales_transactions", exportData);
+  };
+
   return (
     <div className="space-y-8">
       <PageHeader
         title="Sales"
         subtitle="Track revenue, orders, and transaction history"
         actions={
-          <Button variant="primary" size="sm" icon={Receipt} onClick={handleOpenAdd}>
-            New Sale
-          </Button>
+          <div className="flex gap-2">
+            {sales.length > 0 && (
+              <Button variant="ghost" size="sm" icon={Download} onClick={handleExportCsv}>
+                Export CSV
+              </Button>
+            )}
+            <Button variant="primary" size="sm" icon={Receipt} onClick={handleOpenAdd}>
+              New Sale
+            </Button>
+          </div>
         }
       />
 
@@ -317,9 +342,14 @@ export default function SalesPage() {
             Recent Transactions
           </h3>
           {sales.length > 0 && (
-            <Button size="sm" variant="ghost" icon={ArrowUpRight}>
-              View All
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="ghost" icon={Download} onClick={handleExportCsv}>
+                Export CSV
+              </Button>
+              <Button size="sm" variant="ghost" icon={ArrowUpRight} onClick={() => setViewAllOpen(true)}>
+                View All ({sales.length})
+              </Button>
+            </div>
           )}
         </div>
 
@@ -349,7 +379,7 @@ export default function SalesPage() {
                 </tr>
               </thead>
               <tbody>
-                {sales.map((s) => (
+                {sales.slice(0, 10).map((s) => (
                   <tr key={s.id} className="border-b border-border/50 last:border-0 hover:bg-surface-hover/50 transition-colors">
                     <td className="py-3 pr-4 text-text-primary font-medium">{s.item_name}</td>
                     <td className="py-3 px-4 text-text-secondary">{s.category}</td>
@@ -383,6 +413,128 @@ export default function SalesPage() {
           </div>
         )}
       </section>
+
+      {/* View All Sales Modal */}
+      <Modal
+        open={viewAllOpen}
+        onClose={() => setViewAllOpen(false)}
+        title={`All Sales Transactions (${sales.length})`}
+        description="Search, filter, and manage all recorded sales"
+        size="4xl"
+        footer={
+          <div className="flex items-center justify-between w-full">
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={Download}
+              onClick={() => {
+                const exportData = sales.map((s) => ({
+                  Item: s.item_name,
+                  Category: s.category,
+                  Customer: s.customer_name || "Walk-in",
+                  Quantity: s.quantity,
+                  Amount: s.amount,
+                  Date: s.sold_at ? new Date(s.sold_at).toLocaleDateString() : "N/A",
+                }));
+                exportToCsv("sales_transactions", exportData);
+              }}
+            >
+              Export CSV
+            </Button>
+            <Button variant="primary" size="sm" onClick={() => setViewAllOpen(false)}>
+              Close
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="relative">
+              <Search size={16} className="absolute left-3 top-3 text-text-muted" />
+              <input
+                type="text"
+                value={viewSearch}
+                onChange={(e) => setViewSearch(e.target.value)}
+                placeholder="Search item or customer name…"
+                className="w-full h-10 pl-9 pr-3 text-sm bg-surface border border-border rounded-xl text-text-primary placeholder:text-text-muted/60 focus:outline-none focus:border-accent/60 transition-all"
+              />
+            </div>
+            <select
+              value={viewCategory}
+              onChange={(e) => setViewCategory(e.target.value)}
+              className="w-full h-10 px-3 text-sm bg-surface border border-border rounded-xl text-text-primary focus:outline-none focus:border-accent/60 [&>option]:bg-zinc-900 [&>option]:text-white transition-all"
+            >
+              <option value="ALL">All Categories</option>
+              {CATEGORIES.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-[#121215] z-10">
+                <tr className="border-b border-border text-text-muted text-xs uppercase tracking-wider">
+                  <th className="text-left py-2 pr-4 font-medium">Item</th>
+                  <th className="text-left py-2 px-4 font-medium">Category</th>
+                  <th className="text-left py-2 px-4 font-medium">Customer</th>
+                  <th className="text-right py-2 px-4 font-medium">Qty</th>
+                  <th className="text-right py-2 px-4 font-medium">Amount</th>
+                  <th className="text-right py-2 pl-4 font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sales
+                  .filter((s) => {
+                    const matchesCat = viewCategory === "ALL" || s.category === viewCategory;
+                    const q = viewSearch.toLowerCase();
+                    const matchesSearch =
+                      !q ||
+                      s.item_name.toLowerCase().includes(q) ||
+                      (s.customer_name && s.customer_name.toLowerCase().includes(q)) ||
+                      s.category.toLowerCase().includes(q);
+                    return matchesCat && matchesSearch;
+                  })
+                  .map((s) => (
+                    <tr key={s.id} className="border-b border-border/50 last:border-0 hover:bg-surface-hover/50 transition-colors">
+                      <td className="py-3 pr-4 text-text-primary font-medium">{s.item_name}</td>
+                      <td className="py-3 px-4 text-text-secondary">{s.category}</td>
+                      <td className="py-3 px-4 text-text-secondary truncate max-w-[140px]">{s.customer_name}</td>
+                      <td className="py-3 px-4 text-right text-text-muted">{s.quantity}</td>
+                      <td className="py-3 px-4 text-right text-text-primary font-semibold">
+                        ${Number(s.amount).toFixed(2)}
+                      </td>
+                      <td className="py-3 pl-4 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => {
+                              setViewAllOpen(false);
+                              handleOpenEdit(s);
+                            }}
+                            className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface transition-colors"
+                            title="Edit sale"
+                          >
+                            <Pencil size={15} />
+                          </button>
+                          <button
+                            onClick={() => {
+                              setViewAllOpen(false);
+                              setDeletingItem(s);
+                            }}
+                            className="p-1.5 rounded-lg text-text-muted hover:text-danger hover:bg-danger/10 transition-colors"
+                            title="Delete sale"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </Modal>
 
       {/* Add / Edit sale modal */}
       <Modal

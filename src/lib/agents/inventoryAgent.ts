@@ -49,6 +49,14 @@ export async function runInventoryAgent(companyId: string): Promise<InventoryRes
     }
   });
 
+  // Sort lowStock by urgency (lowest quantity first)
+  lowStock.sort((a, b) => {
+    if (a.quantity !== b.quantity) return a.quantity - b.quantity;
+    const ratioA = a.quantity / (a.reorderLevel || 1);
+    const ratioB = b.quantity / (b.reorderLevel || 1);
+    return ratioA - ratioB;
+  });
+
   // ── Shortage predictions (days until empty) ──
   const shortages: InventoryResult["shortages"] = [];
   (items ?? []).forEach((item) => {

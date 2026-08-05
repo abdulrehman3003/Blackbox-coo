@@ -1,11 +1,12 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Users, UserPlus, Mail, MapPin, ShoppingCart, ArrowUpRight, Pencil, Trash2 } from "lucide-react";
+import { Users, UserPlus, Mail, MapPin, ShoppingCart, ArrowUpRight, Pencil, Trash2, Search, Download } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
 import PageHeader from "../components/ui/PageHeader";
 import Button from "../components/ui/Button";
 import Modal from "../components/ui/Modal";
 import { Field, TextInput, TextArea } from "../components/ui/FormField";
+import { exportToCsv } from "../lib/exportCsv";
 
 interface CustomerRecord {
   id: string;
@@ -27,6 +28,9 @@ export default function CustomersPage() {
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
+  const [viewAllOpen, setViewAllOpen] = useState(false);
+  const [viewSearch, setViewSearch] = useState("");
+
   const [editingItem, setEditingItem] = useState<CustomerRecord | null>(null);
   const [deletingItem, setDeletingItem] = useState<CustomerRecord | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -154,6 +158,20 @@ export default function CustomersPage() {
     await loadCustomers();
   };
 
+  const handleExportCsv = () => {
+    if (!customers.length) return;
+    const exportData = customers.map((c) => ({
+      Name: c.name,
+      Email: c.email || "N/A",
+      Phone: c.phone || "N/A",
+      TotalVisits: c.visit_count,
+      TotalSpent: c.total_spent,
+      LastVisit: c.last_visit_at ? new Date(c.last_visit_at).toLocaleDateString() : "N/A",
+      Notes: c.notes || "N/A",
+    }));
+    exportToCsv("customers_directory", exportData);
+  };
+
   const totalRevenue = customers.reduce((s, c) => s + Number(c.total_spent), 0);
   const totalVisits = customers.reduce((s, c) => s + c.visit_count, 0);
   const avgSpend = customers.length > 0 ? totalRevenue / customers.length : 0;
@@ -164,9 +182,16 @@ export default function CustomersPage() {
         title="Customers"
         subtitle="View and manage your customer relationships"
         actions={
-          <Button variant="primary" size="sm" icon={UserPlus} onClick={handleOpenAdd}>
-            Add Customer
-          </Button>
+          <div className="flex gap-2">
+            {customers.length > 0 && (
+              <Button variant="ghost" size="sm" icon={Download} onClick={handleExportCsv}>
+                Export CSV
+              </Button>
+            )}
+            <Button variant="primary" size="sm" icon={UserPlus} onClick={handleOpenAdd}>
+              Add Customer
+            </Button>
+          </div>
         }
       />
 
@@ -206,9 +231,14 @@ export default function CustomersPage() {
             Customer List
           </h3>
           {customers.length > 0 && (
-            <Button size="sm" variant="ghost" icon={ArrowUpRight}>
-              Export
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="ghost" icon={Download} onClick={handleExportCsv}>
+                Export CSV
+              </Button>
+              <Button size="sm" variant="ghost" icon={ArrowUpRight} onClick={() => setViewAllOpen(true)}>
+                View All ({customers.length})
+              </Button>
+            </div>
           )}
         </div>
 
@@ -241,7 +271,7 @@ export default function CustomersPage() {
                 </tr>
               </thead>
               <tbody>
-                {customers.map((c) => (
+                {customers.slice(0, 10).map((c) => (
                   <tr key={c.id} className="border-b border-border/50 last:border-0 hover:bg-surface-hover/50 transition-colors">
                     <td className="py-3 pr-4">
                       <div className="flex items-center gap-3">
@@ -285,6 +315,127 @@ export default function CustomersPage() {
           </div>
         )}
       </section>
+
+      {/* View All Customers Modal */}
+      <Modal
+        open={viewAllOpen}
+        onClose={() => setViewAllOpen(false)}
+        title={`All Customers Directory (${customers.length})`}
+        description="Search, filter, and manage all registered customers"
+        size="4xl"
+        footer={
+          <div className="flex items-center justify-between w-full">
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={Download}
+              onClick={() => {
+                const exportData = customers.map((c) => ({
+                  Name: c.name,
+                  Email: c.email || "N/A",
+                  Phone: c.phone || "N/A",
+                  TotalVisits: c.visit_count,
+                  TotalSpent: c.total_spent,
+                  LastVisit: c.last_visit_at ? new Date(c.last_visit_at).toLocaleDateString() : "N/A",
+                  Notes: c.notes || "N/A",
+                }));
+                exportToCsv("customers_directory", exportData);
+              }}
+            >
+              Export CSV
+            </Button>
+            <Button variant="primary" size="sm" onClick={() => setViewAllOpen(false)}>
+              Close
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <div className="relative">
+            <Search size={16} className="absolute left-3 top-3 text-text-muted" />
+            <input
+              type="text"
+              value={viewSearch}
+              onChange={(e) => setViewSearch(e.target.value)}
+              placeholder="Search customer name, email, or phone…"
+              className="w-full h-10 pl-9 pr-3 text-sm bg-surface border border-border rounded-xl text-text-primary placeholder:text-text-muted/60 focus:outline-none focus:border-accent/60 transition-all"
+            />
+          </div>
+
+          <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-[#121215] z-10">
+                <tr className="border-b border-border text-text-muted text-xs uppercase tracking-wider">
+                  <th className="text-left py-2 pr-4 font-medium">Name</th>
+                  <th className="text-left py-2 px-4 font-medium">Email</th>
+                  <th className="text-left py-2 px-4 font-medium">Phone</th>
+                  <th className="text-right py-2 px-4 font-medium">Visits</th>
+                  <th className="text-right py-2 px-4 font-medium">Total Spent</th>
+                  <th className="text-right py-2 px-4 font-medium">Last Visit</th>
+                  <th className="text-right py-2 pl-4 font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {customers
+                  .filter((c) => {
+                    const q = viewSearch.toLowerCase();
+                    return (
+                      !q ||
+                      c.name.toLowerCase().includes(q) ||
+                      (c.email && c.email.toLowerCase().includes(q)) ||
+                      (c.phone && c.phone.toLowerCase().includes(q))
+                    );
+                  })
+                  .map((c) => (
+                    <tr key={c.id} className="border-b border-border/50 last:border-0 hover:bg-surface-hover/50 transition-colors">
+                      <td className="py-3 pr-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-accent-subtle flex items-center justify-center text-accent text-xs font-bold uppercase">
+                            {c.name.charAt(0)}
+                          </div>
+                          <span className="text-text-primary font-medium">{c.name}</span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 text-text-muted">{c.email || "–"}</td>
+                      <td className="py-3 px-4 text-text-muted">{c.phone || "–"}</td>
+                      <td className="py-3 px-4 text-right text-text-muted">{c.visit_count}</td>
+                      <td className="py-3 px-4 text-right text-text-primary font-semibold">
+                        ${Number(c.total_spent).toFixed(2)}
+                      </td>
+                      <td className="py-3 px-4 text-right text-text-muted text-xs">
+                        {c.last_visit_at ? new Date(c.last_visit_at).toLocaleDateString() : "N/A"}
+                      </td>
+                      <td className="py-3 pl-4 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => {
+                              setViewAllOpen(false);
+                              handleOpenEdit(c);
+                            }}
+                            className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface transition-colors"
+                            title="Edit customer"
+                          >
+                            <Pencil size={15} />
+                          </button>
+                          <button
+                            onClick={() => {
+                              setViewAllOpen(false);
+                              setDeletingItem(c);
+                            }}
+                            className="p-1.5 rounded-lg text-text-muted hover:text-danger hover:bg-danger/10 transition-colors"
+                            title="Delete customer"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </Modal>
 
       {/* Add / Edit customer modal */}
       <Modal

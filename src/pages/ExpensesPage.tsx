@@ -1,11 +1,12 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { DollarSign, TrendingDown, PieChart, Calendar, ArrowUpRight, Plus, Pencil, Trash2 } from "lucide-react";
+import { DollarSign, TrendingDown, PieChart, Calendar, ArrowUpRight, Plus, Pencil, Trash2, Search, Download } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
 import PageHeader from "../components/ui/PageHeader";
 import Button from "../components/ui/Button";
 import Modal from "../components/ui/Modal";
 import { Field, TextInput, SelectInput, TextArea } from "../components/ui/FormField";
+import { exportToCsv } from "../lib/exportCsv";
 
 interface ExpenseRecord {
   id: string;
@@ -43,6 +44,10 @@ export default function ExpensesPage() {
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
+  const [viewAllOpen, setViewAllOpen] = useState(false);
+  const [viewSearch, setViewSearch] = useState("");
+  const [viewCategory, setViewCategory] = useState("ALL");
+
   const [editingItem, setEditingItem] = useState<ExpenseRecord | null>(null);
   const [deletingItem, setDeletingItem] = useState<ExpenseRecord | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -58,7 +63,7 @@ export default function ExpensesPage() {
       .select("id, category, description, amount, incurred_at, vendor")
       .eq("company_id", companyId)
       .order("incurred_at", { ascending: false })
-      .limit(50);
+      .limit(500);
     const rows = (data ?? []) as ExpenseRecord[];
     setExpenses(rows);
 
@@ -152,6 +157,18 @@ export default function ExpensesPage() {
     await loadExpenses();
   };
 
+  const handleExportCsv = () => {
+    if (!expenses.length) return;
+    const exportData = expenses.map((e) => ({
+      Description: e.description || "N/A",
+      Category: e.category,
+      Vendor: e.vendor || "N/A",
+      Date: e.incurred_at ? new Date(e.incurred_at).toLocaleDateString() : "N/A",
+      Amount: e.amount,
+    }));
+    exportToCsv("expense_records", exportData);
+  };
+
   const categoryTotals = expenses.reduce<Record<string, number>>((acc, r) => {
     acc[r.category] = (acc[r.category] ?? 0) + Number(r.amount);
     return acc;
@@ -163,9 +180,16 @@ export default function ExpensesPage() {
         title="Expenses"
         subtitle="Monitor costs, categorize spending, and track burn rate"
         actions={
-          <Button variant="primary" size="sm" icon={Plus} onClick={handleOpenAdd}>
-            Add Expense
-          </Button>
+          <div className="flex gap-2">
+            {expenses.length > 0 && (
+              <Button variant="ghost" size="sm" icon={Download} onClick={handleExportCsv}>
+                Export CSV
+              </Button>
+            )}
+            <Button variant="primary" size="sm" icon={Plus} onClick={handleOpenAdd}>
+              Add Expense
+            </Button>
+          </div>
         }
       />
 
@@ -237,9 +261,14 @@ export default function ExpensesPage() {
             Expense Records
           </h3>
           {expenses.length > 0 && (
-            <Button size="sm" variant="ghost" icon={ArrowUpRight}>
-              View All
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="ghost" icon={Download} onClick={handleExportCsv}>
+                Export CSV
+              </Button>
+              <Button size="sm" variant="ghost" icon={ArrowUpRight} onClick={() => setViewAllOpen(true)}>
+                View All ({expenses.length})
+              </Button>
+            </div>
           )}
         </div>
 
@@ -270,7 +299,7 @@ export default function ExpensesPage() {
                 </tr>
               </thead>
               <tbody>
-                {expenses.map((e) => (
+                {expenses.slice(0, 10).map((e) => (
                   <tr key={e.id} className="border-b border-border/50 last:border-0 hover:bg-surface-hover/50 transition-colors">
                     <td className="py-3 pr-4 text-text-primary">{e.description || "–"}</td>
                     <td className="py-3 px-4">
@@ -309,6 +338,131 @@ export default function ExpensesPage() {
           </div>
         )}
       </section>
+
+      {/* View All Expenses Modal */}
+      <Modal
+        open={viewAllOpen}
+        onClose={() => setViewAllOpen(false)}
+        title={`All Expense Records (${expenses.length})`}
+        description="Search, filter, and manage all recorded expenses"
+        size="4xl"
+        footer={
+          <div className="flex items-center justify-between w-full">
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={Download}
+              onClick={() => {
+                const exportData = expenses.map((e) => ({
+                  Description: e.description || "N/A",
+                  Category: e.category,
+                  Vendor: e.vendor || "N/A",
+                  Date: e.incurred_at ? new Date(e.incurred_at).toLocaleDateString() : "N/A",
+                  Amount: e.amount,
+                }));
+                exportToCsv("expense_records", exportData);
+              }}
+            >
+              Export CSV
+            </Button>
+            <Button variant="primary" size="sm" onClick={() => setViewAllOpen(false)}>
+              Close
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="relative">
+              <Search size={16} className="absolute left-3 top-3 text-text-muted" />
+              <input
+                type="text"
+                value={viewSearch}
+                onChange={(e) => setViewSearch(e.target.value)}
+                placeholder="Search description or vendor…"
+                className="w-full h-10 pl-9 pr-3 text-sm bg-surface border border-border rounded-xl text-text-primary placeholder:text-text-muted/60 focus:outline-none focus:border-accent/60 transition-all"
+              />
+            </div>
+            <select
+              value={viewCategory}
+              onChange={(e) => setViewCategory(e.target.value)}
+              className="w-full h-10 px-3 text-sm bg-surface border border-border rounded-xl text-text-primary focus:outline-none focus:border-accent/60 [&>option]:bg-zinc-900 [&>option]:text-white transition-all"
+            >
+              <option value="ALL">All Categories</option>
+              {CATEGORIES.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-[#121215] z-10">
+                <tr className="border-b border-border text-text-muted text-xs uppercase tracking-wider">
+                  <th className="text-left py-2 pr-4 font-medium">Description</th>
+                  <th className="text-left py-2 px-4 font-medium">Category</th>
+                  <th className="text-right py-2 px-4 font-medium">Date</th>
+                  <th className="text-right py-2 px-4 font-medium">Amount</th>
+                  <th className="text-right py-2 pl-4 font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {expenses
+                  .filter((e) => {
+                    const matchesCategory = viewCategory === "ALL" || e.category === viewCategory;
+                    const q = viewSearch.toLowerCase();
+                    const matchesSearch =
+                      !q ||
+                      (e.description && e.description.toLowerCase().includes(q)) ||
+                      (e.vendor && e.vendor.toLowerCase().includes(q)) ||
+                      e.category.toLowerCase().includes(q);
+                    return matchesCategory && matchesSearch;
+                  })
+                  .map((e) => (
+                    <tr key={e.id} className="border-b border-border/50 last:border-0 hover:bg-surface-hover/50 transition-colors">
+                      <td className="py-3 pr-4 text-text-primary">{e.description || "–"}</td>
+                      <td className="py-3 px-4">
+                        <span className="inline-block px-2 py-0.5 rounded-md bg-accent-subtle text-accent text-xs font-medium">
+                          {e.category}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right text-text-muted">
+                        {new Date(e.incurred_at).toLocaleDateString()}
+                      </td>
+                      <td className="py-3 px-4 text-right text-text-primary font-semibold text-danger">
+                        -${Number(e.amount).toFixed(2)}
+                      </td>
+                      <td className="py-3 pl-4 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => {
+                              setViewAllOpen(false);
+                              handleOpenEdit(e);
+                            }}
+                            className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface transition-colors"
+                            title="Edit expense"
+                          >
+                            <Pencil size={15} />
+                          </button>
+                          <button
+                            onClick={() => {
+                              setViewAllOpen(false);
+                              setDeletingItem(e);
+                            }}
+                            className="p-1.5 rounded-lg text-text-muted hover:text-danger hover:bg-danger/10 transition-colors"
+                            title="Delete expense"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </Modal>
 
       {/* Add / Edit expense modal */}
       <Modal

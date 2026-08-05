@@ -8,7 +8,17 @@ interface ModalProps {
   description?: string;
   children: ReactNode;
   footer?: ReactNode;
+  size?: "md" | "lg" | "xl" | "2xl" | "3xl" | "4xl";
 }
+
+const sizeClasses = {
+  md: "max-w-md",
+  lg: "max-w-lg",
+  xl: "max-w-xl",
+  "2xl": "max-w-2xl",
+  "3xl": "max-w-3xl",
+  "4xl": "max-w-4xl",
+};
 
 export default function Modal({
   open,
@@ -17,6 +27,7 @@ export default function Modal({
   description,
   children,
   footer,
+  size = "lg",
 }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
@@ -88,7 +99,7 @@ export default function Modal({
         aria-modal="true"
         aria-labelledby="modal-title"
         tabIndex={-1}
-        className="relative w-full max-w-lg glass-card p-6 outline-none animate-scale-in max-h-[90vh] overflow-y-auto"
+        className={`relative w-full ${sizeClasses[size]} glass-card p-6 outline-none animate-scale-in max-h-[90vh] overflow-y-auto`}
       >
         <div className="flex items-start justify-between gap-4 mb-5">
           <div>
