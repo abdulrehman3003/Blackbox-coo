@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { DollarSign, TrendingDown, PieChart, Calendar, ArrowUpRight, Plus } from "lucide-react";
+import { DollarSign, TrendingDown, PieChart, Calendar, Plus, Pencil, Trash2 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
 import PageHeader from "../components/ui/PageHeader";
@@ -42,9 +42,14 @@ export default function ExpensesPage() {
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ category: CATEGORIES[0], amount: "", description: "", vendor: "", incurred_at: today() });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Confirm delete
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const loadExpenses = async () => {
     if (!companyId) return;
@@ -78,6 +83,26 @@ export default function ExpensesPage() {
     (e: { target: { value: string } }) =>
       setForm((f) => ({ ...f, [key]: e.target.value }));
 
+  const openNew = () => {
+    setEditingId(null);
+    setForm({ category: CATEGORIES[0], amount: "", description: "", vendor: "", incurred_at: today() });
+    setError(null);
+    setModalOpen(true);
+  };
+
+  const openEdit = (e: ExpenseRecord) => {
+    setEditingId(e.id);
+    setForm({
+      category: e.category,
+      amount: String(Number(e.amount).toFixed(2)),
+      description: e.description || "",
+      vendor: "",
+      incurred_at: e.incurred_at ? new Date(e.incurred_at).toISOString().slice(0, 10) : today(),
+    });
+    setError(null);
+    setModalOpen(true);
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!companyId || !form.amount || Number(form.amount) <= 0) {
@@ -86,22 +111,39 @@ export default function ExpensesPage() {
     }
     setSaving(true);
     setError(null);
-    const { error: insertError } = await supabase.from("expenses").insert({
+    const payload = {
       company_id: companyId,
       category: form.category,
       amount: Number(form.amount),
       description: form.description.trim() || null,
       vendor: form.vendor.trim() || null,
       incurred_at: form.incurred_at,
-    });
+    };
+    const { error: err } = editingId
+      ? await supabase.from("expenses").update(payload).eq("id", editingId)
+      : await supabase.from("expenses").insert(payload);
     setSaving(false);
-    if (insertError) {
+    if (err) {
       setError("We couldn't save that expense — please try again.");
       return;
     }
     setModalOpen(false);
+    setEditingId(null);
     setForm({ category: CATEGORIES[0], amount: "", description: "", vendor: "", incurred_at: today() });
     await loadExpenses();
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    const { error: err } = await supabase.from("expenses").delete().eq("id", deleteTarget.id);
+    setDeleting(false);
+    if (!err) {
+      setDeleteTarget(null);
+      await loadExpenses();
+    } else {
+      setDeleteTarget(null);
+    }
   };
 
   const categoryTotals = expenses.reduce<Record<string, number>>((acc, r) => {
@@ -115,7 +157,7 @@ export default function ExpensesPage() {
         title="Expenses"
         subtitle="Monitor costs, categorize spending, and track burn rate"
         actions={
-          <Button variant="primary" size="sm" icon={Plus} onClick={() => setModalOpen(true)}>
+          <Button variant="primary" size="sm" icon={Plus} onClick={openNew}>
             Add Expense
           </Button>
         }
@@ -189,9 +231,7 @@ export default function ExpensesPage() {
             Expense Records
           </h3>
           {expenses.length > 0 && (
-            <Button size="sm" variant="ghost" icon={ArrowUpRight}>
-              View All
-            </Button>
+            <span className="text-xs text-text-muted">{expenses.length} entries</span>
           )}
         </div>
 
@@ -217,7 +257,8 @@ export default function ExpensesPage() {
                   <th className="text-left py-2 pr-4 font-medium">Description</th>
                   <th className="text-left py-2 px-4 font-medium">Category</th>
                   <th className="text-right py-2 px-4 font-medium">Date</th>
-                  <th className="text-right py-2 pl-4 font-medium">Amount</th>
+                  <th className="text-right py-2 px-4 font-medium">Amount</th>
+                  <th className="text-right py-2 pl-4 font-medium w-24">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -235,6 +276,24 @@ export default function ExpensesPage() {
                     <td className="py-3 pl-4 text-right text-text-primary font-semibold text-danger">
                       -${Number(e.amount).toFixed(2)}
                     </td>
+                    <td className="py-3 pl-4 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => openEdit(e)}
+                          className="p-1.5 rounded-md text-text-muted hover:text-accent hover:bg-accent-subtle transition-colors cursor-pointer"
+                          aria-label="Edit expense"
+                        >
+                          <Pencil size={14} />
+                        </button>
+                        <button
+                          onClick={() => setDeleteTarget({ id: e.id, label: e.description || e.category })}
+                          className="p-1.5 rounded-md text-text-muted hover:text-danger hover:bg-danger/10 transition-colors cursor-pointer"
+                          aria-label="Delete expense"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -243,19 +302,19 @@ export default function ExpensesPage() {
         )}
       </section>
 
-      {/* Add expense modal */}
+      {/* Add / Edit expense modal */}
       <Modal
         open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        title="Add Expense"
-        description="Record a new business expense"
+        onClose={() => { setModalOpen(false); setEditingId(null); }}
+        title={editingId ? "Edit Expense" : "Add Expense"}
+        description={editingId ? "Update this expense record" : "Record a new business expense"}
         footer={
           <>
-            <Button variant="ghost" size="sm" onClick={() => setModalOpen(false)}>
+            <Button variant="ghost" size="sm" onClick={() => { setModalOpen(false); setEditingId(null); }}>
               Cancel
             </Button>
             <Button variant="primary" size="sm" type="submit" form="add-expense-form" loading={saving}>
-              {saving ? "Saving…" : "Add Expense"}
+              {saving ? "Saving…" : editingId ? "Update Expense" : "Add Expense"}
             </Button>
           </>
         }
@@ -314,6 +373,28 @@ export default function ExpensesPage() {
             </p>
           )}
         </form>
+      </Modal>
+
+      {/* Delete confirmation */}
+      <Modal
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete Expense"
+        description={`Are you sure you want to delete this expense "${deleteTarget?.label}"?`}
+        footer={
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" onClick={confirmDelete} loading={deleting}>
+              {deleting ? "Deleting…" : "Delete"}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-text-secondary">
+          This will permanently remove this expense record.
+        </p>
       </Modal>
     </div>
   );

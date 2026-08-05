@@ -30,7 +30,7 @@ export function TextInput(props: InputProps) {
 type SelectProps = ComponentProps<"select">;
 export function SelectInput(props: SelectProps) {
   return (
-    <select {...props} className={`${inputBase} ${props.className ?? ""}`}>
+    <select {...props} className={`${inputBase} ${props.className ?? ""}`} style={{ colorScheme: "dark" }}>
       {props.children}
     </select>
   );

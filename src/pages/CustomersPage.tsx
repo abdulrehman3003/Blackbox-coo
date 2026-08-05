@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Users, UserPlus, Mail, MapPin, ShoppingCart, ArrowUpRight } from "lucide-react";
+import { Users, UserPlus, Mail, MapPin, ShoppingCart, Pencil, Trash2 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
 import PageHeader from "../components/ui/PageHeader";
@@ -26,9 +26,14 @@ export default function CustomersPage() {
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ name: "", email: "", phone: "", notes: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Confirm delete
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const loadCustomers = async () => {
     if (!companyId) return;

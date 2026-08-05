@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Package, AlertTriangle, RefreshCw, TrendingUp, Plus, ArrowUpRight } from "lucide-react";
+import { Package, AlertTriangle, RefreshCw, TrendingUp, Plus, Pencil, Trash2 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
 import PageHeader from "../components/ui/PageHeader";
@@ -34,9 +34,14 @@ export default function InventoryPage() {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Confirm delete
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const loadItems = async () => {
     if (!companyId) return;
@@ -56,6 +61,28 @@ export default function InventoryPage() {
   const set = (key: keyof typeof EMPTY_FORM) => (e: { target: { value: string } }) =>
     setForm((f) => ({ ...f, [key]: e.target.value }));
 
+  const openNew = () => {
+    setEditingId(null);
+    setForm({ ...EMPTY_FORM });
+    setError(null);
+    setModalOpen(true);
+  };
+
+  const openEdit = (item: InventoryItem) => {
+    setEditingId(item.id);
+    setForm({
+      name: item.name,
+      sku: item.sku || "",
+      category: item.category,
+      quantity: String(item.quantity),
+      reorder_level: String(item.reorder_level),
+      unit_cost: String(Number(item.unit_cost).toFixed(2)),
+      supplier: "",
+    });
+    setError(null);
+    setModalOpen(true);
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!companyId || !form.name.trim()) {
@@ -64,7 +91,7 @@ export default function InventoryPage() {
     }
     setSaving(true);
     setError(null);
-    const { error: insertError } = await supabase.from("inventory").insert({
+    const payload = {
       company_id: companyId,
       name: form.name.trim(),
       sku: form.sku.trim() || null,
@@ -73,15 +100,32 @@ export default function InventoryPage() {
       reorder_level: Number(form.reorder_level) || 0,
       unit_cost: Number(form.unit_cost) || 0,
       supplier: form.supplier.trim() || null,
-    });
+    };
+    const { error: err } = editingId
+      ? await supabase.from("inventory").update(payload).eq("id", editingId)
+      : await supabase.from("inventory").insert(payload);
     setSaving(false);
-    if (insertError) {
+    if (err) {
       setError("We couldn't save that product — please try again.");
       return;
     }
     setModalOpen(false);
+    setEditingId(null);
     setForm({ ...EMPTY_FORM });
     await loadItems();
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    const { error: err } = await supabase.from("inventory").delete().eq("id", deleteTarget.id);
+    setDeleting(false);
+    if (!err) {
+      setDeleteTarget(null);
+      await loadItems();
+    } else {
+      setDeleteTarget(null);
+    }
   };
 
   const totalStock = items.reduce((s, i) => s + i.quantity, 0);
@@ -95,7 +139,7 @@ export default function InventoryPage() {
         title="Inventory"
         subtitle="Manage stock levels, reorder points, and product catalog"
         actions={
-          <Button variant="primary" size="sm" icon={Plus} onClick={() => setModalOpen(true)}>
+          <Button variant="primary" size="sm" icon={Plus} onClick={openNew}>
             Add Product
           </Button>
         }
@@ -171,9 +215,7 @@ export default function InventoryPage() {
             All Products
           </h3>
           {items.length > 0 && (
-            <Button size="sm" variant="ghost" icon={ArrowUpRight}>
-              Export
-            </Button>
+            <span className="text-xs text-text-muted">{items.length} products</span>
           )}
         </div>
 
@@ -201,7 +243,8 @@ export default function InventoryPage() {
                   <th className="text-left py-2 px-4 font-medium">Category</th>
                   <th className="text-right py-2 px-4 font-medium">Qty</th>
                   <th className="text-right py-2 px-4 font-medium">Price</th>
-                  <th className="text-right py-2 pl-4 font-medium">Value</th>
+                  <th className="text-right py-2 px-4 font-medium">Value</th>
+                  <th className="text-right py-2 pl-4 font-medium w-24">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -228,6 +271,24 @@ export default function InventoryPage() {
                       <td className="py-3 pl-4 text-right text-text-primary font-semibold">
                         ${(item.quantity * Number(item.unit_cost)).toFixed(2)}
                       </td>
+                      <td className="py-3 pl-4 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => openEdit(item)}
+                            className="p-1.5 rounded-md text-text-muted hover:text-accent hover:bg-accent-subtle transition-colors cursor-pointer"
+                            aria-label="Edit product"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <button
+                            onClick={() => setDeleteTarget({ id: item.id, label: item.name })}
+                            className="p-1.5 rounded-md text-text-muted hover:text-danger hover:bg-danger/10 transition-colors cursor-pointer"
+                            aria-label="Delete product"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}
@@ -237,19 +298,19 @@ export default function InventoryPage() {
         )}
       </section>
 
-      {/* Add product modal */}
+      {/* Add / Edit product modal */}
       <Modal
         open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        title="Add Product"
-        description="Create a new inventory item"
+        onClose={() => { setModalOpen(false); setEditingId(null); }}
+        title={editingId ? "Edit Product" : "Add Product"}
+        description={editingId ? "Update this inventory item" : "Create a new inventory item"}
         footer={
           <>
-            <Button variant="ghost" size="sm" onClick={() => setModalOpen(false)}>
+            <Button variant="ghost" size="sm" onClick={() => { setModalOpen(false); setEditingId(null); }}>
               Cancel
             </Button>
             <Button variant="primary" size="sm" type="submit" form="add-product-form" loading={saving}>
-              {saving ? "Saving…" : "Add Product"}
+              {saving ? "Saving…" : editingId ? "Update Product" : "Add Product"}
             </Button>
           </>
         }
@@ -330,6 +391,28 @@ export default function InventoryPage() {
             </p>
           )}
         </form>
+      </Modal>
+
+      {/* Delete confirmation */}
+      <Modal
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete Product"
+        description={`Remove "${deleteTarget?.label}" from inventory?`}
+        footer={
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" onClick={confirmDelete} loading={deleting}>
+              {deleting ? "Deleting…" : "Delete"}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-text-secondary">
+          This will permanently remove this product from your inventory.
+        </p>
       </Modal>
     </div>
   );

@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react";
-import { ShoppingCart, TrendingUp, DollarSign, Receipt, ArrowUpRight } from "lucide-react";
+import { useEffect, useState, type FormEvent } from "react";
+import { ShoppingCart, TrendingUp, DollarSign, Receipt, Plus, Pencil, Trash2 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
 import PageHeader from "../components/ui/PageHeader";
 import Button from "../components/ui/Button";
+import Modal from "../components/ui/Modal";
+import { Field, TextInput, SelectInput } from "../components/ui/FormField";
 
 interface SaleRecord {
   id: string;
@@ -13,6 +15,7 @@ interface SaleRecord {
   amount: number;
   sold_at: string;
   customer_name?: string;
+  customer_id?: string;
 }
 
 interface MonthSales {
@@ -20,6 +23,15 @@ interface MonthSales {
   total: number;
   count: number;
 }
+
+interface CustomerOption {
+  id: string;
+  name: string;
+}
+
+const CATEGORIES = ["Coffee", "Tea", "Food", "Merchandise", "Beverages", "General"];
+
+const todayStr = () => new Date().toISOString().slice(0, 10);
 
 export default function SalesPage() {
   const { profile } = useAuth();
@@ -30,12 +42,36 @@ export default function SalesPage() {
   const [totalRevenue, setTotalRevenue] = useState(0);
   const [growth, setGrowth] = useState(0);
 
+  // Modal state
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState({
+    item_name: "", category: "Coffee", quantity: "1", amount: "", customer_id: "", sold_at: todayStr(),
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [customers, setCustomers] = useState<CustomerOption[]>([]);
+
+  // Confirm delete
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const loadCustomers = async () => {
+    if (!companyId) return;
+    const { data } = await supabase
+      .from("customers")
+      .select("id, name")
+      .eq("company_id", companyId)
+      .order("name");
+    setCustomers((data ?? []) as CustomerOption[]);
+  };
+
   useEffect(() => {
     if (!companyId) return;
     (async () => {
       const { data } = await supabase
         .from("sales")
-        .select("id, item_name, category, quantity, amount, sold_at, customers(name)")
+        .select("id, item_name, category, quantity, amount, sold_at, customer_id, customers(name)")
         .eq("company_id", companyId)
         .order("sold_at", { ascending: false })
         .limit(50);
@@ -46,6 +82,7 @@ export default function SalesPage() {
         quantity: r.quantity,
         amount: r.amount,
         sold_at: r.sold_at,
+        customer_id: r.customer_id,
         customer_name: r.customers?.name ?? "Walk-in",
       }));
       setSales(rows);
@@ -75,7 +112,73 @@ export default function SalesPage() {
       }
       setLoading(false);
     })();
+    loadCustomers();
   }, [companyId]);
+
+  const set = (key: keyof typeof form) => (e: { target: { value: string } }) =>
+    setForm((f) => ({ ...f, [key]: e.target.value }));
+
+  const openNew = () => {
+    setEditingId(null);
+    setForm({ item_name: "", category: "Coffee", quantity: "1", amount: "", customer_id: "", sold_at: todayStr() });
+    setError(null);
+    setModalOpen(true);
+  };
+
+  const openEdit = (s: SaleRecord) => {
+    setEditingId(s.id);
+    setForm({
+      item_name: s.item_name,
+      category: s.category,
+      quantity: String(s.quantity),
+      amount: String(Number(s.amount).toFixed(2)),
+      customer_id: s.customer_id ?? "",
+      sold_at: s.sold_at ? new Date(s.sold_at).toISOString().slice(0, 10) : todayStr(),
+    });
+    setError(null);
+    setModalOpen(true);
+  };
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!companyId || !form.item_name.trim() || !form.amount || Number(form.amount) <= 0) {
+      setError("Item name and valid amount are required");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    const payload = {
+      company_id: companyId,
+      item_name: form.item_name.trim(),
+      category: form.category,
+      quantity: Number(form.quantity) || 1,
+      amount: Number(form.amount),
+      customer_id: form.customer_id || null,
+      sold_at: new Date(form.sold_at).toISOString(),
+    };
+    const { error: err } = editingId
+      ? await supabase.from("sales").update(payload).eq("id", editingId)
+      : await supabase.from("sales").insert(payload);
+    setSaving(false);
+    if (err) {
+      setError("We couldn't save that sale — please try again.");
+      return;
+    }
+    setModalOpen(false);
+    setForm({ item_name: "", category: "Coffee", quantity: "1", amount: "", customer_id: "", sold_at: todayStr() });
+    setEditingId(null);
+    // Reload — quick hack: reload the page so monthly aggregations recompute
+    window.location.reload();
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    await supabase.from("sales").delete().eq("id", deleteTarget.id);
+    setDeleting(false);
+    setDeleteTarget(null);
+    window.location.reload();
+  };
 
   return (
     <div className="space-y-8">
@@ -83,7 +186,7 @@ export default function SalesPage() {
         title="Sales"
         subtitle="Track revenue, orders, and transaction history"
         actions={
-          <Button variant="primary" size="sm" icon={Receipt}>
+          <Button variant="primary" size="sm" icon={Plus} onClick={openNew}>
             New Sale
           </Button>
         }
@@ -158,9 +261,7 @@ export default function SalesPage() {
             Recent Transactions
           </h3>
           {sales.length > 0 && (
-            <Button size="sm" variant="ghost" icon={ArrowUpRight}>
-              View All
-            </Button>
+            <span className="text-xs text-text-muted">{sales.length} transactions</span>
           )}
         </div>
 
@@ -185,7 +286,8 @@ export default function SalesPage() {
                   <th className="text-left py-2 px-4 font-medium">Category</th>
                   <th className="text-left py-2 px-4 font-medium">Customer</th>
                   <th className="text-right py-2 px-4 font-medium">Qty</th>
-                  <th className="text-right py-2 pl-4 font-medium">Amount</th>
+                  <th className="text-right py-2 px-4 font-medium">Amount</th>
+                  <th className="text-right py-2 pl-4 font-medium w-24">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -195,8 +297,26 @@ export default function SalesPage() {
                     <td className="py-3 px-4 text-text-secondary">{s.category}</td>
                     <td className="py-3 px-4 text-text-secondary truncate max-w-[140px]">{s.customer_name}</td>
                     <td className="py-3 px-4 text-right text-text-muted">{s.quantity}</td>
-                    <td className="py-3 pl-4 text-right text-text-primary font-semibold">
+                    <td className="py-3 px-4 text-right text-text-primary font-semibold">
                       ${Number(s.amount).toFixed(2)}
+                    </td>
+                    <td className="py-3 pl-4 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => openEdit(s)}
+                          className="p-1.5 rounded-md text-text-muted hover:text-accent hover:bg-accent-subtle transition-colors cursor-pointer"
+                          aria-label="Edit sale"
+                        >
+                          <Pencil size={14} />
+                        </button>
+                        <button
+                          onClick={() => setDeleteTarget({ id: s.id, label: s.item_name })}
+                          className="p-1.5 rounded-md text-text-muted hover:text-danger hover:bg-danger/10 transition-colors cursor-pointer"
+                          aria-label="Delete sale"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -205,6 +325,110 @@ export default function SalesPage() {
           </div>
         )}
       </section>
+
+      {/* New / Edit Sale modal */}
+      <Modal
+        open={modalOpen}
+        onClose={() => { setModalOpen(false); setEditingId(null); }}
+        title={editingId ? "Edit Sale" : "New Sale"}
+        description={editingId ? "Update this sale record" : "Record a new sale transaction"}
+        footer={
+          <>
+            <Button variant="ghost" size="sm" onClick={() => { setModalOpen(false); setEditingId(null); }}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" type="submit" form="sale-form" loading={saving}>
+              {saving ? "Saving…" : editingId ? "Update Sale" : "Add Sale"}
+            </Button>
+          </>
+        }
+      >
+        <form id="sale-form" onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Item name" htmlFor="sale-item">
+              <TextInput
+                id="sale-item"
+                value={form.item_name}
+                onChange={set("item_name")}
+                placeholder="e.g. Latte"
+                required
+              />
+            </Field>
+            <Field label="Category" htmlFor="sale-category">
+              <SelectInput id="sale-category" value={form.category} onChange={set("category")}>
+                {CATEGORIES.map((c) => (
+                  <option key={c}>{c}</option>
+                ))}
+              </SelectInput>
+            </Field>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <Field label="Quantity" htmlFor="sale-qty">
+              <TextInput
+                id="sale-qty"
+                type="number"
+                min="1"
+                step="1"
+                value={form.quantity}
+                onChange={set("quantity")}
+              />
+            </Field>
+            <Field label="Amount ($)" htmlFor="sale-amount">
+              <TextInput
+                id="sale-amount"
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={form.amount}
+                onChange={set("amount")}
+                placeholder="e.g. 5.50"
+                required
+              />
+            </Field>
+            <Field label="Date" htmlFor="sale-date">
+              <TextInput
+                id="sale-date"
+                type="date"
+                value={form.sold_at}
+                onChange={set("sold_at")}
+              />
+            </Field>
+          </div>
+          <Field label="Customer (optional)" htmlFor="sale-customer">
+            <SelectInput id="sale-customer" value={form.customer_id} onChange={set("customer_id")}>
+              <option value="">Walk-in / No customer</option>
+              {customers.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </SelectInput>
+          </Field>
+          {error && (
+            <p className="text-sm text-danger" role="alert">{error}</p>
+          )}
+        </form>
+      </Modal>
+
+      {/* Delete confirmation */}
+      <Modal
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete Sale"
+        description={`Are you sure you want to delete the sale "${deleteTarget?.label}"? This action cannot be undone.`}
+        footer={
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" onClick={confirmDelete} loading={deleting}>
+              {deleting ? "Deleting…" : "Delete"}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-text-secondary">
+          This will permanently remove this sale record from your database.
+        </p>
+      </Modal>
     </div>
   );
 }
