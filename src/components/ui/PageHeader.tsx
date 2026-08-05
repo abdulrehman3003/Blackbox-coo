@@ -3,6 +3,8 @@ import type { ReactNode } from "react";
 interface PageHeaderProps {
   title: string;
   subtitle?: string;
+  description?: string;
+  icon?: unknown;
   actions?: ReactNode;
   className?: string;
 }

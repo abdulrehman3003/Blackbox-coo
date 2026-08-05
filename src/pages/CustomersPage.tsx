@@ -1,17 +1,19 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Users, UserPlus, Mail, MapPin, ShoppingCart, Pencil, Trash2 } from "lucide-react";
+import { Users, UserPlus, Mail, MapPin, ShoppingCart, Pencil, Trash2, ArrowUpRight, Search, Download } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
 import PageHeader from "../components/ui/PageHeader";
 import Button from "../components/ui/Button";
 import Modal from "../components/ui/Modal";
 import { Field, TextInput, TextArea } from "../components/ui/FormField";
+import { exportToCsv } from "../lib/exportCsv";
 
 interface CustomerRecord {
   id: string;
   name: string;
   email: string;
   phone: string;
+  notes?: string;
   total_spent: number;
   visit_count: number;
   last_visit_at: string;
@@ -26,14 +28,16 @@ export default function CustomersPage() {
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [viewAllOpen, setViewAllOpen] = useState(false);
+  const [viewSearch, setViewSearch] = useState("");
+
+  const [editingItem, setEditingItem] = useState<CustomerRecord | null>(null);
+  const [deletingItem, setDeletingItem] = useState<CustomerRecord | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
   const [form, setForm] = useState({ name: "", email: "", phone: "", notes: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Confirm delete
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null);
-  const [deleting, setDeleting] = useState(false);
 
   const loadCustomers = async () => {
     if (!companyId) return;
@@ -81,6 +85,48 @@ export default function CustomersPage() {
     await loadCustomers();
   };
 
+  const handleExportCsv = () => {
+    if (!customers.length) return;
+    const exportData = customers.map((c) => ({
+      Name: c.name,
+      Email: c.email || "N/A",
+      Phone: c.phone || "N/A",
+      TotalVisits: c.visit_count,
+      TotalSpent: c.total_spent,
+      LastVisit: c.last_visit_at ? new Date(c.last_visit_at).toLocaleDateString() : "N/A",
+      Notes: c.notes || "N/A",
+    }));
+    exportToCsv("customers_directory", exportData);
+  };
+
+  const handleOpenAdd = () => {
+    setEditingItem(null);
+    setForm({ name: "", email: "", phone: "", notes: "" });
+    setError(null);
+    setModalOpen(true);
+  };
+
+  const handleOpenEdit = (c: CustomerRecord) => {
+    setEditingItem(c);
+    setForm({
+      name: c.name || "",
+      email: c.email || "",
+      phone: c.phone || "",
+      notes: c.notes || "",
+    });
+    setError(null);
+    setModalOpen(true);
+  };
+
+  const handleDelete = async () => {
+    if (!deletingItem) return;
+    setDeleting(true);
+    await supabase.from("customers").delete().eq("id", deletingItem.id);
+    setDeleting(false);
+    setDeletingItem(null);
+    await loadCustomers();
+  };
+
   const totalRevenue = customers.reduce((s, c) => s + Number(c.total_spent), 0);
   const totalVisits = customers.reduce((s, c) => s + c.visit_count, 0);
   const avgSpend = customers.length > 0 ? totalRevenue / customers.length : 0;
@@ -91,9 +137,17 @@ export default function CustomersPage() {
         title="Customers"
         subtitle="View and manage your customer relationships"
         actions={
-          <Button variant="primary" size="sm" icon={UserPlus} onClick={() => setModalOpen(true)}>
-            Add Customer
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="secondary" size="sm" icon={ArrowUpRight} onClick={() => setViewAllOpen(true)}>
+              View All Directory
+            </Button>
+            <Button variant="secondary" size="sm" icon={Download} onClick={handleExportCsv}>
+              Export CSV
+            </Button>
+            <Button variant="primary" size="sm" icon={UserPlus} onClick={handleOpenAdd}>
+              Add Customer
+            </Button>
+          </div>
         }
       />
 
@@ -132,11 +186,14 @@ export default function CustomersPage() {
             <Users size={16} className="text-accent" />
             Customer List
           </h3>
-          {customers.length > 0 && (
-            <Button size="sm" variant="ghost" icon={ArrowUpRight}>
-              Export
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="secondary" icon={Download} onClick={handleExportCsv}>
+              Export CSV
             </Button>
-          )}
+            <Button size="sm" variant="secondary" icon={ArrowUpRight} onClick={() => setViewAllOpen(true)}>
+              View All ({customers.length})
+            </Button>
+          </div>
         </div>
 
         {loading ? (
@@ -163,7 +220,8 @@ export default function CustomersPage() {
                   <th className="text-left py-2 px-4 font-medium">Phone</th>
                   <th className="text-right py-2 px-4 font-medium">Visits</th>
                   <th className="text-right py-2 px-4 font-medium">Total Spent</th>
-                  <th className="text-right py-2 pl-4 font-medium">Last Visit</th>
+                  <th className="text-right py-2 px-4 font-medium">Last Visit</th>
+                  <th className="text-right py-2 pl-4 font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -183,8 +241,26 @@ export default function CustomersPage() {
                     <td className="py-3 px-4 text-right text-text-primary font-semibold">
                       ${Number(c.total_spent).toFixed(2)}
                     </td>
-                    <td className="py-3 pl-4 text-right text-text-muted text-xs">
+                    <td className="py-3 px-4 text-right text-text-muted text-xs">
                       {c.last_visit_at ? new Date(c.last_visit_at).toLocaleDateString() : "N/A"}
+                    </td>
+                    <td className="py-3 pl-4 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => handleOpenEdit(c)}
+                          className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface transition-colors"
+                          title="Edit customer"
+                        >
+                          <Pencil size={15} />
+                        </button>
+                        <button
+                          onClick={() => setDeletingItem(c)}
+                          className="p-1.5 rounded-lg text-text-muted hover:text-danger hover:bg-danger/10 transition-colors"
+                          title="Delete customer"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -192,26 +268,144 @@ export default function CustomersPage() {
             </table>
           </div>
         )}
+
+        {customers.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-border/50 flex justify-center">
+            <Button size="sm" variant="secondary" icon={ArrowUpRight} onClick={() => setViewAllOpen(true)}>
+              View All Customers ({customers.length})
+            </Button>
+          </div>
+        )}
       </section>
 
-      {/* Add customer modal */}
+      {/* View All Customers Modal */}
+      <Modal
+        open={viewAllOpen}
+        onClose={() => setViewAllOpen(false)}
+        title={`All Customers Directory (${customers.length})`}
+        description="Search, filter, and manage all registered customers"
+        size="4xl"
+        footer={
+          <div className="flex items-center justify-between w-full">
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={Download}
+              onClick={handleExportCsv}
+            >
+              Export CSV
+            </Button>
+            <Button variant="primary" size="sm" onClick={() => setViewAllOpen(false)}>
+              Close
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <div className="relative">
+            <Search size={16} className="absolute left-3 top-3 text-text-muted" />
+            <input
+              type="text"
+              value={viewSearch}
+              onChange={(e) => setViewSearch(e.target.value)}
+              placeholder="Search customer name, email, or phone…"
+              className="w-full h-10 pl-9 pr-3 text-sm bg-surface border border-border rounded-xl text-text-primary placeholder:text-text-muted/60 focus:outline-none focus:border-accent/60 transition-all"
+            />
+          </div>
+
+          <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-[#121215] z-10">
+                <tr className="border-b border-border text-text-muted text-xs uppercase tracking-wider">
+                  <th className="text-left py-2 pr-4 font-medium">Name</th>
+                  <th className="text-left py-2 px-4 font-medium">Email</th>
+                  <th className="text-left py-2 px-4 font-medium">Phone</th>
+                  <th className="text-right py-2 px-4 font-medium">Visits</th>
+                  <th className="text-right py-2 px-4 font-medium">Total Spent</th>
+                  <th className="text-right py-2 px-4 font-medium">Last Visit</th>
+                  <th className="text-right py-2 pl-4 font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {customers
+                  .filter((c) => {
+                    const q = viewSearch.toLowerCase();
+                    return (
+                      !q ||
+                      c.name.toLowerCase().includes(q) ||
+                      (c.email && c.email.toLowerCase().includes(q)) ||
+                      (c.phone && c.phone.toLowerCase().includes(q))
+                    );
+                  })
+                  .map((c) => (
+                    <tr key={c.id} className="border-b border-border/50 last:border-0 hover:bg-surface-hover/50 transition-colors">
+                      <td className="py-3 pr-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-accent-subtle flex items-center justify-center text-accent text-xs font-bold uppercase">
+                            {c.name.charAt(0)}
+                          </div>
+                          <span className="text-text-primary font-medium">{c.name}</span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 text-text-muted">{c.email || "–"}</td>
+                      <td className="py-3 px-4 text-text-muted">{c.phone || "–"}</td>
+                      <td className="py-3 px-4 text-right text-text-muted">{c.visit_count}</td>
+                      <td className="py-3 px-4 text-right text-text-primary font-semibold">
+                        ${Number(c.total_spent).toFixed(2)}
+                      </td>
+                      <td className="py-3 px-4 text-right text-text-muted text-xs">
+                        {c.last_visit_at ? new Date(c.last_visit_at).toLocaleDateString() : "N/A"}
+                      </td>
+                      <td className="py-3 pl-4 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => {
+                              setViewAllOpen(false);
+                              handleOpenEdit(c);
+                            }}
+                            className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface transition-colors"
+                            title="Edit customer"
+                          >
+                            <Pencil size={15} />
+                          </button>
+                          <button
+                            onClick={() => {
+                              setViewAllOpen(false);
+                              setDeletingItem(c);
+                            }}
+                            className="p-1.5 rounded-lg text-text-muted hover:text-danger hover:bg-danger/10 transition-colors"
+                            title="Delete customer"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Add / Edit customer modal */}
       <Modal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
-        title="Add Customer"
-        description="Add a new customer to your directory"
+        title={editingItem ? "Edit Customer" : "Add Customer"}
+        description={editingItem ? "Update customer profile information" : "Add a new customer to your directory"}
         footer={
           <>
             <Button variant="ghost" size="sm" onClick={() => setModalOpen(false)}>
               Cancel
             </Button>
-            <Button variant="primary" size="sm" type="submit" form="add-customer-form" loading={saving}>
-              {saving ? "Saving…" : "Add Customer"}
+            <Button variant="primary" size="sm" type="submit" form="customer-form" loading={saving}>
+              {saving ? "Saving…" : editingItem ? "Update Customer" : "Add Customer"}
             </Button>
           </>
         }
       >
-        <form id="add-customer-form" onSubmit={handleSubmit} className="space-y-4">
+        <form id="customer-form" onSubmit={handleSubmit} className="space-y-4">
           <Field label="Customer name" htmlFor="cust-name">
             <TextInput
               id="cust-name"
@@ -255,6 +449,31 @@ export default function CustomersPage() {
             </p>
           )}
         </form>
+      </Modal>
+
+      {/* Delete customer confirmation modal */}
+      <Modal
+        open={Boolean(deletingItem)}
+        onClose={() => setDeletingItem(null)}
+        title="Delete Customer"
+        description="Are you sure you want to delete this customer? This action cannot be undone."
+        footer={
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setDeletingItem(null)}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" onClick={handleDelete} loading={deleting} className="!bg-danger !text-white hover:!bg-danger/80">
+              {deleting ? "Deleting…" : "Delete Customer"}
+            </Button>
+          </>
+        }
+      >
+        {deletingItem && (
+          <div className="p-3 rounded-xl bg-surface/50 text-sm space-y-1">
+            <p className="text-text-primary font-medium">{deletingItem.name}</p>
+            <p className="text-xs text-text-muted">{deletingItem.email || deletingItem.phone || "No contact info"}</p>
+          </div>
+        )}
       </Modal>
     </div>
   );

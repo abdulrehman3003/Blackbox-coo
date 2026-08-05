@@ -1,11 +1,12 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Package, AlertTriangle, RefreshCw, TrendingUp, Plus, Pencil, Trash2 } from "lucide-react";
+import { Package, AlertTriangle, RefreshCw, TrendingUp, Plus, Pencil, Trash2, ArrowUpRight, Search, Download } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
 import PageHeader from "../components/ui/PageHeader";
 import Button from "../components/ui/Button";
 import Modal from "../components/ui/Modal";
 import { Field, TextInput, SelectInput } from "../components/ui/FormField";
+import { exportToCsv } from "../lib/exportCsv";
 
 interface InventoryItem {
   id: string;
@@ -15,8 +16,22 @@ interface InventoryItem {
   quantity: number;
   reorder_level: number;
   unit_cost: number;
+  supplier?: string;
   updated_at: string;
 }
+
+const CATEGORIES = [
+  "General",
+  "Coffee",
+  "Dairy",
+  "Alternatives",
+  "Syrups",
+  "Packaging",
+  "Food",
+  "Equipment",
+  "Beverages",
+  "Snacks",
+];
 
 const EMPTY_FORM = {
   name: "",
@@ -34,6 +49,10 @@ export default function InventoryPage() {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
+  const [viewAllOpen, setViewAllOpen] = useState(false);
+  const [viewSearch, setViewSearch] = useState("");
+  const [viewCategory, setViewCategory] = useState("ALL");
+
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [saving, setSaving] = useState(false);
@@ -128,6 +147,21 @@ export default function InventoryPage() {
     }
   };
 
+  const handleExportCsv = () => {
+    if (!items.length) return;
+    const exportData = items.map((i) => ({
+      Product: i.name,
+      SKU: i.sku || "N/A",
+      Category: i.category,
+      Quantity: i.quantity,
+      ReorderLevel: i.reorder_level,
+      UnitCost: i.unit_cost,
+      TotalValue: (i.quantity * Number(i.unit_cost)).toFixed(2),
+      Supplier: i.supplier || "N/A",
+    }));
+    exportToCsv("inventory_products", exportData);
+  };
+
   const totalStock = items.reduce((s, i) => s + i.quantity, 0);
   const totalValue = items.reduce((s, i) => s + i.quantity * Number(i.unit_cost), 0);
   const lowStock = items.filter((i) => i.quantity <= i.reorder_level);
@@ -139,9 +173,17 @@ export default function InventoryPage() {
         title="Inventory"
         subtitle="Manage stock levels, reorder points, and product catalog"
         actions={
-          <Button variant="primary" size="sm" icon={Plus} onClick={openNew}>
-            Add Product
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="secondary" size="sm" icon={ArrowUpRight} onClick={() => setViewAllOpen(true)}>
+              View All Catalog
+            </Button>
+            <Button variant="secondary" size="sm" icon={Download} onClick={handleExportCsv}>
+              Export CSV
+            </Button>
+            <Button variant="primary" size="sm" icon={Plus} onClick={openNew}>
+              Add Product
+            </Button>
+          </div>
         }
       />
 
@@ -214,9 +256,14 @@ export default function InventoryPage() {
             <Package size={16} className="text-accent" />
             All Products
           </h3>
-          {items.length > 0 && (
-            <span className="text-xs text-text-muted">{items.length} products</span>
-          )}
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="secondary" icon={Download} onClick={handleExportCsv}>
+              Export CSV
+            </Button>
+            <Button size="sm" variant="secondary" icon={ArrowUpRight} onClick={() => setViewAllOpen(true)}>
+              View All ({items.length})
+            </Button>
+          </div>
         </div>
 
         {loading ? (
@@ -296,7 +343,138 @@ export default function InventoryPage() {
             </table>
           </div>
         )}
+
+        {items.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-border/50 flex justify-center">
+            <Button size="sm" variant="secondary" icon={ArrowUpRight} onClick={() => setViewAllOpen(true)}>
+              View All Products ({items.length})
+            </Button>
+          </div>
+        )}
       </section>
+
+      {/* View All Inventory Modal */}
+      <Modal
+        open={viewAllOpen}
+        onClose={() => setViewAllOpen(false)}
+        title={`All Products Catalog (${items.length})`}
+        description="Search, filter, and manage all products in inventory"
+        size="4xl"
+        footer={
+          <div className="flex items-center justify-between w-full">
+            <Button variant="secondary" size="sm" icon={Download} onClick={handleExportCsv}>
+              Export CSV
+            </Button>
+            <Button variant="primary" size="sm" onClick={() => setViewAllOpen(false)}>
+              Close
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="relative">
+              <Search size={16} className="absolute left-3 top-3 text-text-muted" />
+              <input
+                type="text"
+                value={viewSearch}
+                onChange={(e) => setViewSearch(e.target.value)}
+                placeholder="Search product name or SKU…"
+                className="w-full h-10 pl-9 pr-3 text-sm bg-surface border border-border rounded-xl text-text-primary placeholder:text-text-muted/60 focus:outline-none focus:border-accent/60 transition-all"
+              />
+            </div>
+            <select
+              value={viewCategory}
+              onChange={(e) => setViewCategory(e.target.value)}
+              className="w-full h-10 px-3 text-sm bg-surface border border-border rounded-xl text-text-primary focus:outline-none focus:border-accent/60 [&>option]:bg-zinc-900 [&>option]:text-white transition-all"
+            >
+              <option value="ALL">All Categories</option>
+              {CATEGORIES.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-[#121215] z-10">
+                <tr className="border-b border-border text-text-muted text-xs uppercase tracking-wider">
+                  <th className="text-left py-2 pr-4 font-medium">Product</th>
+                  <th className="text-left py-2 px-4 font-medium">SKU</th>
+                  <th className="text-left py-2 px-4 font-medium">Category</th>
+                  <th className="text-right py-2 px-4 font-medium">Qty</th>
+                  <th className="text-right py-2 px-4 font-medium">Price</th>
+                  <th className="text-right py-2 px-4 font-medium">Value</th>
+                  <th className="text-right py-2 pl-4 font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items
+                  .filter((item) => {
+                    const matchesCat = viewCategory === "ALL" || item.category === viewCategory;
+                    const q = viewSearch.toLowerCase();
+                    const matchesSearch =
+                      !q ||
+                      item.name.toLowerCase().includes(q) ||
+                      (item.sku && item.sku.toLowerCase().includes(q)) ||
+                      item.category.toLowerCase().includes(q);
+                    return matchesCat && matchesSearch;
+                  })
+                  .map((item) => {
+                    const isLow = item.quantity <= item.reorder_level;
+                    const isOut = item.quantity === 0;
+                    return (
+                      <tr
+                        key={item.id}
+                        className={`border-b border-border/50 last:border-0 hover:bg-surface-hover/50 transition-colors ${
+                          isOut ? "bg-danger/5" : isLow ? "bg-warning/5" : ""
+                        }`}
+                      >
+                        <td className="py-3 pr-4 text-text-primary font-medium">{item.name}</td>
+                        <td className="py-3 px-4 text-text-muted text-xs font-mono">{item.sku || "–"}</td>
+                        <td className="py-3 px-4 text-text-secondary">{item.category}</td>
+                        <td className="py-3 px-4 text-right">
+                          <span className={`font-semibold ${isOut ? "text-danger" : isLow ? "text-warning" : "text-text-primary"}`}>
+                            {item.quantity}
+                          </span>
+                          <span className="text-text-muted text-xs ml-1">/ {item.reorder_level}</span>
+                        </td>
+                        <td className="py-3 px-4 text-right text-text-muted">${Number(item.unit_cost).toFixed(2)}</td>
+                        <td className="py-3 px-4 text-right text-text-primary font-semibold">
+                          ${(item.quantity * Number(item.unit_cost)).toFixed(2)}
+                        </td>
+                        <td className="py-3 pl-4 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              onClick={() => {
+                                setViewAllOpen(false);
+                                openEdit(item);
+                              }}
+                              className="p-1.5 rounded-md text-text-muted hover:text-accent hover:bg-accent-subtle transition-colors cursor-pointer"
+                              title="Edit product"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                            <button
+                              onClick={() => {
+                                setViewAllOpen(false);
+                                setDeleteTarget({ id: item.id, label: item.name });
+                              }}
+                              className="p-1.5 rounded-md text-text-muted hover:text-danger hover:bg-danger/10 transition-colors cursor-pointer"
+                              title="Delete product"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </Modal>
 
       {/* Add / Edit product modal */}
       <Modal

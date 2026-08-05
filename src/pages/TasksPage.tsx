@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { CheckSquare, Plus, ListTodo } from "lucide-react";
+import { CheckSquare, Plus, ListTodo, Pencil, Trash2 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
 import PageHeader from "../components/ui/PageHeader";
@@ -19,6 +19,7 @@ interface TaskRecord {
 }
 
 const PRIORITIES = ["low", "medium", "high", "urgent"] as const;
+const STATUSES = ["todo", "in_progress", "done", "cancelled"] as const;
 
 const statusLabels: Record<string, string> = {
   todo: "To Do",
@@ -42,6 +43,10 @@ export default function TasksPage() {
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<TaskRecord | null>(null);
+  const [deletingItem, setDeletingItem] = useState<TaskRecord | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
   const [form, setForm] = useState({ title: "", description: "", priority: "medium", status: "todo", due_date: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +58,7 @@ export default function TasksPage() {
       .select("id, title, description, status, priority, due_date, created_at")
       .eq("company_id", companyId)
       .order("created_at", { ascending: false })
-      .limit(50);
+      .limit(100);
     setTasks((data ?? []) as TaskRecord[]);
     setLoading(false);
   };
@@ -67,6 +72,26 @@ export default function TasksPage() {
     (e: { target: { value: string } }) =>
       setForm((f) => ({ ...f, [key]: e.target.value }));
 
+  const handleOpenAdd = () => {
+    setEditingItem(null);
+    setForm({ title: "", description: "", priority: "medium", status: "todo", due_date: "" });
+    setError(null);
+    setModalOpen(true);
+  };
+
+  const handleOpenEdit = (t: TaskRecord) => {
+    setEditingItem(t);
+    setForm({
+      title: t.title || "",
+      description: t.description || "",
+      priority: t.priority || "medium",
+      status: t.status || "todo",
+      due_date: t.due_date ? t.due_date.slice(0, 10) : "",
+    });
+    setError(null);
+    setModalOpen(true);
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!companyId || !form.title.trim()) {
@@ -75,21 +100,37 @@ export default function TasksPage() {
     }
     setSaving(true);
     setError(null);
-    const { error: insertError } = await supabase.from("tasks").insert({
+
+    const payload = {
       company_id: companyId,
       title: form.title.trim(),
       description: form.description.trim() || null,
       priority: form.priority,
       status: form.status,
       due_date: form.due_date ? new Date(form.due_date).toISOString() : null,
-    });
+    };
+
+    const req = editingItem
+      ? await supabase.from("tasks").update(payload).eq("id", editingItem.id)
+      : await supabase.from("tasks").insert(payload);
+
     setSaving(false);
-    if (insertError) {
+    if (req.error) {
       setError("We couldn't save that task — please try again.");
       return;
     }
     setModalOpen(false);
+    setEditingItem(null);
     setForm({ title: "", description: "", priority: "medium", status: "todo", due_date: "" });
+    await loadTasks();
+  };
+
+  const handleDelete = async () => {
+    if (!deletingItem) return;
+    setDeleting(true);
+    await supabase.from("tasks").delete().eq("id", deletingItem.id);
+    setDeleting(false);
+    setDeletingItem(null);
     await loadTasks();
   };
 
@@ -105,7 +146,7 @@ export default function TasksPage() {
         title="Tasks & Projects"
         subtitle="Manage your operational tasks"
         actions={
-          <Button variant="primary" size="sm" icon={Plus} onClick={() => setModalOpen(true)}>
+          <Button variant="primary" size="sm" icon={Plus} onClick={handleOpenAdd}>
             New Task
           </Button>
         }
@@ -148,7 +189,7 @@ export default function TasksPage() {
         <GlassCard padding="lg">
           <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2 mb-4">
             <ListTodo size={16} className="text-accent" />
-            All Tasks
+            All Tasks ({tasks.length})
           </h3>
           <div className="space-y-2">
             {tasks.map((task) => (
@@ -181,6 +222,22 @@ export default function TasksPage() {
                   <span className="px-2 py-0.5 rounded-md bg-surface border border-border text-xs text-text-secondary">
                     {statusLabels[task.status] ?? task.status}
                   </span>
+                  <div className="flex items-center gap-1 ml-2">
+                    <button
+                      onClick={() => handleOpenEdit(task)}
+                      className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface transition-colors"
+                      title="Edit task"
+                    >
+                      <Pencil size={15} />
+                    </button>
+                    <button
+                      onClick={() => setDeletingItem(task)}
+                      className="p-1.5 rounded-lg text-text-muted hover:text-danger hover:bg-danger/10 transition-colors"
+                      title="Delete task"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -188,24 +245,24 @@ export default function TasksPage() {
         </GlassCard>
       )}
 
-      {/* New task modal */}
+      {/* New / Edit task modal */}
       <Modal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
-        title="New Task"
-        description="Create a task for you or your team"
+        title={editingItem ? "Edit Task" : "New Task"}
+        description={editingItem ? "Update task details, priority, or status" : "Create a task for you or your team"}
         footer={
           <>
             <Button variant="ghost" size="sm" onClick={() => setModalOpen(false)}>
               Cancel
             </Button>
-            <Button variant="primary" size="sm" type="submit" form="add-task-form" loading={saving}>
-              {saving ? "Saving…" : "Create Task"}
+            <Button variant="primary" size="sm" type="submit" form="task-form" loading={saving}>
+              {saving ? "Saving…" : editingItem ? "Update Task" : "Create Task"}
             </Button>
           </>
         }
       >
-        <form id="add-task-form" onSubmit={handleSubmit} className="space-y-4">
+        <form id="task-form" onSubmit={handleSubmit} className="space-y-4">
           <Field label="Task title" htmlFor="task-title">
             <TextInput
               id="task-title"
@@ -223,11 +280,18 @@ export default function TasksPage() {
               placeholder="What needs to be done?"
             />
           </Field>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Field label="Priority" htmlFor="task-priority">
               <SelectInput id="task-priority" value={form.priority} onChange={set("priority")}>
                 {PRIORITIES.map((p) => (
                   <option key={p} value={p} className="capitalize">{p}</option>
+                ))}
+              </SelectInput>
+            </Field>
+            <Field label="Status" htmlFor="task-status">
+              <SelectInput id="task-status" value={form.status} onChange={set("status")}>
+                {STATUSES.map((s) => (
+                  <option key={s} value={s}>{statusLabels[s]}</option>
                 ))}
               </SelectInput>
             </Field>
@@ -246,6 +310,31 @@ export default function TasksPage() {
             </p>
           )}
         </form>
+      </Modal>
+
+      {/* Delete task confirmation modal */}
+      <Modal
+        open={Boolean(deletingItem)}
+        onClose={() => setDeletingItem(null)}
+        title="Delete Task"
+        description="Are you sure you want to delete this task? This action cannot be undone."
+        footer={
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setDeletingItem(null)}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" onClick={handleDelete} loading={deleting} className="!bg-danger !text-white hover:!bg-danger/80">
+              {deleting ? "Deleting…" : "Delete Task"}
+            </Button>
+          </>
+        }
+      >
+        {deletingItem && (
+          <div className="p-3 rounded-xl bg-surface/50 text-sm space-y-1">
+            <p className="text-text-primary font-medium">{deletingItem.title}</p>
+            <p className="text-xs text-text-muted">{statusLabels[deletingItem.status] ?? deletingItem.status}</p>
+          </div>
+        )}
       </Modal>
     </div>
   );
