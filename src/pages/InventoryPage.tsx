@@ -1,42 +1,91 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Package, AlertTriangle, RefreshCw, TrendingUp, Plus, ArrowUpRight } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
 import PageHeader from "../components/ui/PageHeader";
 import Button from "../components/ui/Button";
+import Modal from "../components/ui/Modal";
+import { Field, TextInput, SelectInput } from "../components/ui/FormField";
 
 interface InventoryItem {
   id: string;
-  item_name: string;
+  name: string;
   sku: string;
   category: string;
   quantity: number;
   reorder_level: number;
-  unit_price: number;
+  unit_cost: number;
   updated_at: string;
 }
+
+const EMPTY_FORM = {
+  name: "",
+  sku: "",
+  category: "General",
+  quantity: "0",
+  reorder_level: "10",
+  unit_cost: "0",
+  supplier: "",
+};
 
 export default function InventoryPage() {
   const { profile } = useAuth();
   const companyId = profile?.company_id ?? "";
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [form, setForm] = useState({ ...EMPTY_FORM });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadItems = async () => {
+    if (!companyId) return;
+    const { data } = await supabase
+      .from("inventory")
+      .select("id, name, sku, category, quantity, reorder_level, unit_cost, updated_at")
+      .eq("company_id", companyId)
+      .order("updated_at", { ascending: false });
+    setItems((data ?? []) as InventoryItem[]);
+    setLoading(false);
+  };
 
   useEffect(() => {
-    if (!companyId) return;
-    (async () => {
-      const { data } = await supabase
-        .from("inventory")
-        .select("id, item_name, sku, category, quantity, reorder_level, unit_price, updated_at")
-        .eq("company_id", companyId)
-        .order("updated_at", { ascending: false });
-      setItems((data ?? []) as InventoryItem[]);
-      setLoading(false);
-    })();
+    loadItems();
   }, [companyId]);
 
+  const set = (key: keyof typeof EMPTY_FORM) => (e: { target: { value: string } }) =>
+    setForm((f) => ({ ...f, [key]: e.target.value }));
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!companyId || !form.name.trim()) {
+      setError("Product name is required");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    const { error: insertError } = await supabase.from("inventory").insert({
+      company_id: companyId,
+      name: form.name.trim(),
+      sku: form.sku.trim() || null,
+      category: form.category,
+      quantity: Number(form.quantity) || 0,
+      reorder_level: Number(form.reorder_level) || 0,
+      unit_cost: Number(form.unit_cost) || 0,
+      supplier: form.supplier.trim() || null,
+    });
+    setSaving(false);
+    if (insertError) {
+      setError("We couldn't save that product — please try again.");
+      return;
+    }
+    setModalOpen(false);
+    setForm({ ...EMPTY_FORM });
+    await loadItems();
+  };
+
   const totalStock = items.reduce((s, i) => s + i.quantity, 0);
-  const totalValue = items.reduce((s, i) => s + i.quantity * Number(i.unit_price), 0);
+  const totalValue = items.reduce((s, i) => s + i.quantity * Number(i.unit_cost), 0);
   const lowStock = items.filter((i) => i.quantity <= i.reorder_level);
   const outOfStock = items.filter((i) => i.quantity === 0);
 
@@ -46,7 +95,7 @@ export default function InventoryPage() {
         title="Inventory"
         subtitle="Manage stock levels, reorder points, and product catalog"
         actions={
-          <Button variant="primary" size="sm" icon={Plus}>
+          <Button variant="primary" size="sm" icon={Plus} onClick={() => setModalOpen(true)}>
             Add Product
           </Button>
         }
@@ -102,7 +151,7 @@ export default function InventoryPage() {
             {lowStock.slice(0, 5).map((item) => (
               <div key={item.id} className="flex items-center justify-between text-sm py-2 px-3 rounded-lg bg-surface/50">
                 <div className="flex items-center gap-3">
-                  <span className="text-text-primary font-medium">{item.item_name}</span>
+                  <span className="text-text-primary font-medium">{item.name}</span>
                   <span className="text-xs text-text-muted">{item.sku}</span>
                 </div>
                 <span className="text-danger font-semibold">
@@ -138,7 +187,9 @@ export default function InventoryPage() {
           <div className="flex flex-col items-center justify-center py-12 text-text-muted">
             <Package size={32} className="mb-3 opacity-30" />
             <p className="text-sm font-medium">No inventory data yet</p>
-            <p className="text-xs mt-1">Add products via the Upload page or load sample data</p>
+            <p className="text-xs mt-1">
+              Click "Add Product" to create your first item, or load sample data from the Dashboard
+            </p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -164,7 +215,7 @@ export default function InventoryPage() {
                         isOut ? "bg-danger/5" : isLow ? "bg-warning/5" : ""
                       }`}
                     >
-                      <td className="py-3 pr-4 text-text-primary font-medium">{item.item_name}</td>
+                      <td className="py-3 pr-4 text-text-primary font-medium">{item.name}</td>
                       <td className="py-3 px-4 text-text-muted text-xs font-mono">{item.sku}</td>
                       <td className="py-3 px-4 text-text-secondary">{item.category}</td>
                       <td className="py-3 px-4 text-right">
@@ -173,9 +224,9 @@ export default function InventoryPage() {
                         </span>
                         <span className="text-text-muted text-xs ml-1">/ {item.reorder_level}</span>
                       </td>
-                      <td className="py-3 px-4 text-right text-text-muted">${Number(item.unit_price).toFixed(2)}</td>
+                      <td className="py-3 px-4 text-right text-text-muted">${Number(item.unit_cost).toFixed(2)}</td>
                       <td className="py-3 pl-4 text-right text-text-primary font-semibold">
-                        ${(item.quantity * Number(item.unit_price)).toFixed(2)}
+                        ${(item.quantity * Number(item.unit_cost)).toFixed(2)}
                       </td>
                     </tr>
                   );
@@ -185,6 +236,101 @@ export default function InventoryPage() {
           </div>
         )}
       </section>
+
+      {/* Add product modal */}
+      <Modal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title="Add Product"
+        description="Create a new inventory item"
+        footer={
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" type="submit" form="add-product-form" loading={saving}>
+              {saving ? "Saving…" : "Add Product"}
+            </Button>
+          </>
+        }
+      >
+        <form id="add-product-form" onSubmit={handleSubmit} className="space-y-4">
+          <Field label="Product name" htmlFor="inv-name">
+            <TextInput
+              id="inv-name"
+              value={form.name}
+              onChange={set("name")}
+              placeholder="e.g. Espresso Beans (1kg)"
+              required
+            />
+          </Field>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="SKU" htmlFor="inv-sku">
+              <TextInput
+                id="inv-sku"
+                value={form.sku}
+                onChange={set("sku")}
+                placeholder="e.g. ESP-1KG"
+              />
+            </Field>
+            <Field label="Category" htmlFor="inv-category">
+              <SelectInput id="inv-category" value={form.category} onChange={set("category")}>
+                <option>General</option>
+                <option>Ingredients</option>
+                <option>Packaging</option>
+                <option>Equipment</option>
+                <option>Beverages</option>
+                <option>Snacks</option>
+              </SelectInput>
+            </Field>
+          </div>
+          <div className="grid grid-cols-3 gap-4">
+            <Field label="Quantity" htmlFor="inv-qty">
+              <TextInput
+                id="inv-qty"
+                type="number"
+                min="0"
+                step="1"
+                value={form.quantity}
+                onChange={set("quantity")}
+              />
+            </Field>
+            <Field label="Reorder level" htmlFor="inv-reorder">
+              <TextInput
+                id="inv-reorder"
+                type="number"
+                min="0"
+                step="1"
+                value={form.reorder_level}
+                onChange={set("reorder_level")}
+              />
+            </Field>
+            <Field label="Unit cost ($)" htmlFor="inv-cost">
+              <TextInput
+                id="inv-cost"
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.unit_cost}
+                onChange={set("unit_cost")}
+              />
+            </Field>
+          </div>
+          <Field label="Supplier" htmlFor="inv-supplier">
+            <TextInput
+              id="inv-supplier"
+              value={form.supplier}
+              onChange={set("supplier")}
+              placeholder="e.g. Green Valley Roasters"
+            />
+          </Field>
+          {error && (
+            <p className="text-sm text-danger" role="alert">
+              {error}
+            </p>
+          )}
+        </form>
+      </Modal>
     </div>
   );
 }

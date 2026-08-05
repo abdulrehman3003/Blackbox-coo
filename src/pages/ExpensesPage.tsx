@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { DollarSign, TrendingDown, PieChart, Calendar, ArrowUpRight, Plus } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
 import PageHeader from "../components/ui/PageHeader";
 import Button from "../components/ui/Button";
+import Modal from "../components/ui/Modal";
+import { Field, TextInput, SelectInput, TextArea } from "../components/ui/FormField";
 
 interface ExpenseRecord {
   id: string;
@@ -13,6 +15,23 @@ interface ExpenseRecord {
   incurred_at: string;
 }
 
+const CATEGORIES = [
+  "Rent & Lease",
+  "Utilities",
+  "Supplies",
+  "Payroll",
+  "Marketing",
+  "Equipment",
+  "Software",
+  "Travel",
+  "Food & Beverage",
+  "Insurance",
+  "Maintenance",
+  "Other",
+];
+
+const today = () => new Date().toISOString().slice(0, 10);
+
 export default function ExpensesPage() {
   const { profile } = useAuth();
   const companyId = profile?.company_id ?? "";
@@ -21,31 +40,69 @@ export default function ExpensesPage() {
   const [totalExpenses, setTotalExpenses] = useState(0);
   const [recentChange, setRecentChange] = useState(0);
 
-  useEffect(() => {
+  // Modal state
+  const [modalOpen, setModalOpen] = useState(false);
+  const [form, setForm] = useState({ category: CATEGORIES[0], amount: "", description: "", vendor: "", incurred_at: today() });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadExpenses = async () => {
     if (!companyId) return;
-    (async () => {
-      const { data } = await supabase
-        .from("expenses")
-        .select("id, category, description, amount, incurred_at")
-        .eq("company_id", companyId)
-        .order("incurred_at", { ascending: false })
-        .limit(50);
-      const rows = (data ?? []) as ExpenseRecord[];
-      setExpenses(rows);
+    const { data } = await supabase
+      .from("expenses")
+      .select("id, category, description, amount, incurred_at")
+      .eq("company_id", companyId)
+      .order("incurred_at", { ascending: false })
+      .limit(50);
+    const rows = (data ?? []) as ExpenseRecord[];
+    setExpenses(rows);
 
-      const total = rows.reduce((s, r) => s + Number(r.amount), 0);
-      setTotalExpenses(total);
+    const total = rows.reduce((s, r) => s + Number(r.amount), 0);
+    setTotalExpenses(total);
 
-      // Compare first half vs second half of records
-      const mid = Math.floor(rows.length / 2);
-      if (mid > 0) {
-        const recent = rows.slice(0, mid).reduce((s, r) => s + Number(r.amount), 0);
-        const older = rows.slice(mid).reduce((s, r) => s + Number(r.amount), 0);
-        setRecentChange(older > 0 ? ((recent - older) / older) * 100 : 0);
-      }
-      setLoading(false);
-    })();
+    const mid = Math.floor(rows.length / 2);
+    if (mid > 0) {
+      const recent = rows.slice(0, mid).reduce((s, r) => s + Number(r.amount), 0);
+      const older = rows.slice(mid).reduce((s, r) => s + Number(r.amount), 0);
+      setRecentChange(older > 0 ? ((recent - older) / older) * 100 : 0);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    loadExpenses();
   }, [companyId]);
+
+  const set =
+    (key: keyof typeof form) =>
+    (e: { target: { value: string } }) =>
+      setForm((f) => ({ ...f, [key]: e.target.value }));
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!companyId || !form.amount || Number(form.amount) <= 0) {
+      setError("Please enter a valid amount");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    const { error: insertError } = await supabase.from("expenses").insert({
+      company_id: companyId,
+      category: form.category,
+      amount: Number(form.amount),
+      description: form.description.trim() || null,
+      vendor: form.vendor.trim() || null,
+      incurred_at: form.incurred_at,
+    });
+    setSaving(false);
+    if (insertError) {
+      setError("We couldn't save that expense — please try again.");
+      return;
+    }
+    setModalOpen(false);
+    setForm({ category: CATEGORIES[0], amount: "", description: "", vendor: "", incurred_at: today() });
+    await loadExpenses();
+  };
 
   const categoryTotals = expenses.reduce<Record<string, number>>((acc, r) => {
     acc[r.category] = (acc[r.category] ?? 0) + Number(r.amount);
@@ -58,7 +115,7 @@ export default function ExpensesPage() {
         title="Expenses"
         subtitle="Monitor costs, categorize spending, and track burn rate"
         actions={
-          <Button variant="primary" size="sm" icon={Plus}>
+          <Button variant="primary" size="sm" icon={Plus} onClick={() => setModalOpen(true)}>
             Add Expense
           </Button>
         }
@@ -148,7 +205,9 @@ export default function ExpensesPage() {
           <div className="flex flex-col items-center justify-center py-12 text-text-muted">
             <DollarSign size={32} className="mb-3 opacity-30" />
             <p className="text-sm font-medium">No expenses recorded</p>
-            <p className="text-xs mt-1">Upload expense data or load sample data from the Dashboard</p>
+            <p className="text-xs mt-1">
+              Click "Add Expense" to get started, or load sample data from the Dashboard
+            </p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -164,7 +223,7 @@ export default function ExpensesPage() {
               <tbody>
                 {expenses.map((e) => (
                   <tr key={e.id} className="border-b border-border/50 last:border-0 hover:bg-surface-hover/50 transition-colors">
-                    <td className="py-3 pr-4 text-text-primary">{e.description}</td>
+                    <td className="py-3 pr-4 text-text-primary">{e.description || "–"}</td>
                     <td className="py-3 px-4">
                       <span className="inline-block px-2 py-0.5 rounded-md bg-accent-subtle text-accent text-xs font-medium">
                         {e.category}
@@ -183,6 +242,79 @@ export default function ExpensesPage() {
           </div>
         )}
       </section>
+
+      {/* Add expense modal */}
+      <Modal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title="Add Expense"
+        description="Record a new business expense"
+        footer={
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" type="submit" form="add-expense-form" loading={saving}>
+              {saving ? "Saving…" : "Add Expense"}
+            </Button>
+          </>
+        }
+      >
+        <form id="add-expense-form" onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Category" htmlFor="exp-category">
+              <SelectInput id="exp-category" value={form.category} onChange={set("category")}>
+                {CATEGORIES.map((c) => (
+                  <option key={c}>{c}</option>
+                ))}
+              </SelectInput>
+            </Field>
+            <Field label="Amount ($)" htmlFor="exp-amount">
+              <TextInput
+                id="exp-amount"
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={form.amount}
+                onChange={set("amount")}
+                placeholder="e.g. 49.99"
+                required
+              />
+            </Field>
+          </div>
+          <Field label="Description" htmlFor="exp-desc">
+            <TextArea
+              id="exp-desc"
+              value={form.description}
+              onChange={set("description")}
+              placeholder="What was this for?"
+            />
+          </Field>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Vendor" htmlFor="exp-vendor">
+              <TextInput
+                id="exp-vendor"
+                value={form.vendor}
+                onChange={set("vendor")}
+                placeholder="e.g. Acme Supplies"
+              />
+            </Field>
+            <Field label="Date" htmlFor="exp-date">
+              <TextInput
+                id="exp-date"
+                type="date"
+                value={form.incurred_at}
+                onChange={set("incurred_at")}
+              />
+            </Field>
+          </div>
+          {error && (
+            <p className="text-sm text-danger" role="alert">
+              {error}
+            </p>
+          )}
+        </form>
+      </Modal>
     </div>
   );
 }
