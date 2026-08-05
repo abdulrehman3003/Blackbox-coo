@@ -1,29 +1,27 @@
 /**
- * Helper to export an array of JSON objects to CSV file and trigger download.
+ * Convert an array of objects to CSV and download it as a file.
  */
-export function exportToCsv(filename: string, rows: Record<string, any>[]) {
-  if (!rows || rows.length === 0) return;
+export function exportToCsv(filename: string, rows: Record<string, string | number>[]): void {
+  if (!rows.length) return;
+
   const headers = Object.keys(rows[0]);
-  const csvRows = [
+  const csvContent = [
     headers.join(","),
     ...rows.map((row) =>
-      headers
-        .map((header) => {
-          const val = row[header] ?? "";
-          const escaped = String(val).replace(/"/g, '""');
-          return `"${escaped}"`;
-        })
-        .join(",")
+      headers.map((h) => {
+        const val = row[h];
+        if (typeof val === "string" && (val.includes(",") || val.includes('"') || val.includes("\n"))) {
+          return `"${val.replace(/"/g, '""')}"`;
+        }
+        return String(val ?? "");
+      }).join(",")
     ),
-  ];
+  ].join("\n");
 
-  const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
   const link = document.createElement("a");
-  link.setAttribute("href", url);
-  link.setAttribute("download", `${filename}.csv`);
-  link.style.visibility = "hidden";
-  document.body.appendChild(link);
+  link.href = URL.createObjectURL(blob);
+  link.download = `${filename}.csv`;
   link.click();
-  document.body.removeChild(link);
+  URL.revokeObjectURL(link.href);
 }

@@ -68,19 +68,23 @@ export default function CustomersPage() {
     }
     setSaving(true);
     setError(null);
-    const { error: insertError } = await supabase.from("customers").insert({
+    const payload = {
       company_id: companyId,
       name: form.name.trim(),
       email: form.email.trim() || null,
       phone: form.phone.trim() || null,
       notes: form.notes.trim() || null,
-    });
+    };
+    const { error: err } = editingItem
+      ? await supabase.from("customers").update(payload).eq("id", editingItem.id)
+      : await supabase.from("customers").insert(payload);
     setSaving(false);
-    if (insertError) {
+    if (err) {
       setError("We couldn't save that customer — please try again.");
       return;
     }
     setModalOpen(false);
+    setEditingItem(null);
     setForm({ name: "", email: "", phone: "", notes: "" });
     await loadCustomers();
   };
