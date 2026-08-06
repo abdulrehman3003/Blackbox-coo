@@ -89,13 +89,13 @@ export default function AgentCard({
           <span className="text-lg">{visual.emoji}</span>
           <div>
             <h3 className="text-sm font-semibold text-text-primary">{visual.label}</h3>
-            <p className="text-[11px] text-text-muted flex items-center gap-1.5">
+            <div className="text-[11px] text-text-muted flex items-center gap-1.5">
               {statusIcon()}
               <span>{statusLabel()}</span>
               {result?.executionMode === "fallback" && (
                 <span className="text-warning ml-1">(fallback)</span>
               )}
-            </p>
+            </div>
           </div>
         </div>
 
