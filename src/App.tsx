@@ -20,6 +20,7 @@ import UploadPage from "./pages/UploadPage";
 import ProfilePage from "./pages/ProfilePage";
 import SettingsPage from "./pages/SettingsPage";
 import CommandCenterPage from "./pages/CommandCenterPage";
+import AgentDashboardPage from "./pages/AgentDashboardPage";
 
 export default function App() {
   return (
@@ -40,6 +41,7 @@ export default function App() {
             <Route element={<AppShell />}>
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/command-center" element={<CommandCenterPage />} />
+              <Route path="/command-center/:agentName" element={<AgentDashboardPage />} />
               <Route path="/sales" element={<SalesPage />} />
               <Route path="/expenses" element={<ExpensesPage />} />
               <Route path="/inventory" element={<InventoryPage />} />

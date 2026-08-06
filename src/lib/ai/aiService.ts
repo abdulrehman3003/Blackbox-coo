@@ -3,7 +3,7 @@
  *
  * Single entry-point for ALL Gemini API calls.
  * Handles: auth, settings, retries, rate limits, error classification, logging.
- * Every agent calls this service; never calls Gemini directly.
+ * Every agent calls this service; fallback to direct REST API when Edge Functions are unavailable.
  */
 
 import { supabase } from "../supabase";
@@ -39,37 +39,52 @@ export async function getAISettings(companyId: string): Promise<AISettings> {
   }
 
   try {
-    const { data } = await supabase
-      .from("company_settings")
-      .select("ai_model, temperature, top_p, max_output_tokens, enable_streaming, enable_ai, enable_fallback")
-      .eq("company_id", companyId)
-      .maybeSingle();
+    let data: any = null;
+    if (companyId) {
+      const res = await supabase
+        .from("company_settings")
+        .select("ai_model, temperature, top_p, max_output_tokens, enable_streaming, enable_ai, enable_fallback")
+        .eq("company_id", companyId)
+        .maybeSingle();
+      data = res.data;
+    }
 
-    const { data: keyData } = await supabase.functions.invoke("manage-secrets", {
-      body: { action: "get", secret_name: "gemini_api_key" },
-    });
+    const localKey = typeof window !== "undefined" ? localStorage.getItem("local_gemini_api_key") : null;
+    let keyDataExists = Boolean(localKey);
+
+    if (!keyDataExists) {
+      try {
+        const { data: keyData } = await supabase.functions.invoke("manage-secrets", {
+          body: { action: "get", secret_name: "gemini_api_key" },
+        });
+        if (keyData?.exists) keyDataExists = true;
+      } catch {
+        // Edge Function fallback
+      }
+    }
 
     const settings: AISettings = {
-      ai_model: data?.ai_model ?? "gemini-2.5-flash",
+      ai_model: data?.ai_model ?? "gemini-3.5-flash",
       temperature: Number(data?.temperature ?? 0.7),
       top_p: Number(data?.top_p ?? 0.95),
       max_output_tokens: Number(data?.max_output_tokens ?? 4096),
       enable_streaming: data?.enable_streaming ?? false,
       enable_ai: data?.enable_ai ?? true,
       enable_fallback: data?.enable_fallback ?? true,
-      has_api_key: keyData?.exists ?? false,
+      has_api_key: keyDataExists,
     };
 
     settingsCache = settings;
     settingsCacheTime = Date.now();
     return settings;
   } catch {
-    return { ...DEFAULT_SETTINGS };
+    const localKey = typeof window !== "undefined" ? localStorage.getItem("local_gemini_api_key") : null;
+    return { ...DEFAULT_SETTINGS, has_api_key: Boolean(localKey) };
   }
 }
 
 const DEFAULT_SETTINGS: AISettings = {
-  ai_model: "gemini-2.5-flash",
+  ai_model: "gemini-3.5-flash",
   temperature: 0.7,
   top_p: 0.95,
   max_output_tokens: 4096,
@@ -84,10 +99,111 @@ export function invalidateSettingsCache(): void {
   settingsCacheTime = 0;
 }
 
+/* ─── Direct Gemini API Fallback ─── */
+
+async function callDirectGeminiAPI(
+  apiKey: string,
+  model: string,
+  systemPrompt: string,
+  userPrompt: string,
+  temperature: number,
+  topP: number,
+  maxTokens: number
+): Promise<AIResponse> {
+  const startTime = performance.now();
+  const cleanKey = apiKey.trim();
+  const targetModel = model.trim() || "gemini-3.5-flash";
+
+  // Candidates starting with requested model and gemini-3.5-flash
+  const endpointCandidates = [
+    `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent`,
+    `https://generativelanguage.googleapis.com/v1/models/${targetModel}:generateContent`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent`,
+    `https://generativelanguage.googleapis.com/v1/models/gemini-3.5-flash:generateContent`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent`,
+    `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent`,
+  ];
+
+  let lastResp: Response | null = null;
+  let lastErrorText = "";
+
+  for (const endpoint of endpointCandidates) {
+    try {
+      const resp = await fetch(`${endpoint}?key=${cleanKey}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }],
+            },
+          ],
+          generationConfig: {
+            temperature,
+            topP,
+            maxOutputTokens: maxTokens,
+          },
+        }),
+      });
+
+      if (resp.ok) {
+        const json = await resp.json();
+        const generatedText = json.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        const latencyMs = Math.round(performance.now() - startTime);
+
+        return {
+          success: true,
+          text: generatedText,
+          model: targetModel,
+          latencyMs,
+          usage: json.usageMetadata
+            ? {
+                promptTokens: json.usageMetadata.promptTokenCount || 0,
+                completionTokens: json.usageMetadata.candidatesTokenCount || 0,
+                totalTokens: json.usageMetadata.totalTokenCount || 0,
+              }
+            : undefined,
+        };
+      }
+
+      lastResp = resp;
+      lastErrorText = await resp.text();
+
+      // Stop loop if bad auth key
+      if (resp.status === 400 && lastErrorText.includes("API key not valid")) {
+        break;
+      }
+    } catch {
+      // Continue candidate trial
+    }
+  }
+
+  const latencyMs = Math.round(performance.now() - startTime);
+  const status = lastResp ? lastResp.status : 500;
+  let extractedError = `HTTP ${status}`;
+  try {
+    const errJson = JSON.parse(lastErrorText);
+    if (errJson?.error?.message) {
+      extractedError = errJson.error.message;
+    }
+  } catch {
+    extractedError = lastErrorText.slice(0, 150);
+  }
+
+  return {
+    success: false,
+    error: `Google Gemini API Error (${status}): ${extractedError}`,
+    errorType: status === 400 ? "invalid_api_key" : "api_error",
+    latencyMs,
+  };
+}
+
 /* ─── Core AI Call ─── */
 
 /**
- * Call Gemini via our Edge Function with retry logic.
+ * Call Gemini via Edge Function or direct REST API fallback.
  * Returns AIResponse — never throws.
  */
 export async function callAI(
@@ -96,8 +212,9 @@ export async function callAI(
 ): Promise<AIResponse> {
   const { systemPrompt, userPrompt, maxRetries = 2 } = options;
   const settings = await getAISettings(companyId);
+  const localKey = typeof window !== "undefined" ? localStorage.getItem("local_gemini_api_key") : null;
 
-  if (!settings.has_api_key) {
+  if (!settings.has_api_key && !localKey) {
     return {
       success: false,
       error: "No Gemini API key configured. Go to Settings to add one.",
@@ -119,82 +236,62 @@ export async function callAI(
     try {
       const startTime = performance.now();
 
-      const { data, error } = await supabase.functions.invoke("call-gemini", {
-        body: {
-          company_id: companyId,
-          model: settings.ai_model,
-          system_prompt: systemPrompt,
-          user_prompt: userPrompt,
-          temperature: settings.temperature,
-          top_p: settings.top_p,
-          max_output_tokens: settings.max_output_tokens,
-        },
-      });
+      // 1. Try Supabase Edge Function first
+      try {
+        const { data, error } = await supabase.functions.invoke("call-gemini", {
+          body: {
+            company_id: companyId,
+            model: settings.ai_model,
+            system_prompt: systemPrompt,
+            user_prompt: userPrompt,
+            temperature: settings.temperature,
+            top_p: settings.top_p,
+            max_output_tokens: settings.max_output_tokens,
+          },
+        });
 
-      const latencyMs = Math.round(performance.now() - startTime);
+        const latencyMs = Math.round(performance.now() - startTime);
 
-      if (error) {
-        throw new Error(error.message || "Edge function error");
-      }
-
-      if (!data) {
-        throw new Error("No response from AI service");
-      }
-
-      // Edge function returned an error
-      if (!data.success) {
-        const errType = data.error_type || "api_error";
-
-        // Rate limit — backoff and retry
-        if (errType === "rate_limit" && attempt < maxRetries) {
-          const backoffMs = Math.min(1000 * Math.pow(2, attempt), 8000);
-          await new Promise((resolve) => setTimeout(resolve, backoffMs));
-          lastError = data.error;
-          continue;
-        }
-
-        // Irrecoverable errors — don't retry
-        if (["invalid_api_key", "no_api_key", "ai_disabled", "model_not_found"].includes(errType)) {
+        if (!error && data && data.success) {
           return {
-            success: false,
-            error: data.error || "AI service error",
-            errorType: errType,
+            success: true,
+            text: data.text || "",
+            model: data.model,
             latencyMs,
+            usage: data.usage
+              ? {
+                  promptTokens: data.usage.prompt_tokens || 0,
+                  completionTokens: data.usage.completion_tokens || 0,
+                  totalTokens: data.usage.total_tokens || 0,
+                }
+              : undefined,
           };
         }
-
-        // Retry for transient errors
-        if (attempt < maxRetries) {
-          await new Promise((resolve) => setTimeout(resolve, 1000 * Math.pow(2, attempt)));
-          lastError = data.error;
-          continue;
-        }
-
-        return {
-          success: false,
-          error: data.error || "AI service error",
-          errorType: errType,
-          latencyMs,
-        };
+      } catch {
+        // Edge Function unreachable or not deployed — proceed to direct fallback
       }
 
-      // Success
-      return {
-        success: true,
-        text: data.text || "",
-        model: data.model,
-        latencyMs,
-        usage: data.usage
-          ? {
-              promptTokens: data.usage.prompt_tokens || 0,
-              completionTokens: data.usage.completion_tokens || 0,
-              totalTokens: data.usage.total_tokens || 0,
-            }
-          : undefined,
-      };
+      // 2. Direct REST API Fallback
+      if (localKey) {
+        const directRes = await callDirectGeminiAPI(
+          localKey,
+          settings.ai_model,
+          systemPrompt,
+          userPrompt,
+          settings.temperature,
+          settings.top_p,
+          settings.max_output_tokens
+        );
+        if (directRes.success) return directRes;
+        lastError = directRes.error;
+      }
+
+      if (attempt < maxRetries) {
+        await new Promise((resolve) => setTimeout(resolve, 1000 * Math.pow(2, attempt)));
+        continue;
+      }
     } catch (err) {
       lastError = err instanceof Error ? err.message : "Unknown error";
-
       if (attempt < maxRetries) {
         await new Promise((resolve) => setTimeout(resolve, 1000 * Math.pow(2, attempt)));
         continue;
@@ -212,9 +309,31 @@ export async function callAI(
 /* ─── Test Connection ─── */
 
 export async function testGeminiConnection(companyId: string): Promise<TestConnectionResult> {
+  const localKey = typeof window !== "undefined" ? localStorage.getItem("local_gemini_api_key") : null;
+  const settings = await getAISettings(companyId);
+  const targetModel = settings.ai_model || "gemini-3.5-flash";
+
+  if (localKey) {
+    const res = await callDirectGeminiAPI(
+      localKey,
+      targetModel,
+      "You are a test assistant.",
+      "Respond with operational.",
+      0.7,
+      0.95,
+      100
+    );
+    return {
+      success: res.success,
+      latency_ms: res.latencyMs,
+      model: res.model || targetModel,
+      error: res.error,
+    };
+  }
+
   const result = await callAI(companyId, {
-    systemPrompt: "You are a test assistant. Respond with a single sentence confirming your model name and that you are operational.",
-    userPrompt: "Respond with only the model name and 'operational'. Example: 'gemini-2.5-flash is operational.'",
+    systemPrompt: "You are a test assistant. Respond with operational.",
+    userPrompt: "Respond with operational.",
     maxRetries: 0,
   });
 
@@ -238,14 +357,12 @@ export async function testGeminiConnection(companyId: string): Promise<TestConne
 
 export function parseAIResponse<T>(text: string): { data?: T; error?: string } {
   try {
-    // Try direct parse first
     const cleaned = text
       .replace(/```json\s*/gi, "")
       .replace(/```\s*$/g, "")
       .trim();
     return { data: JSON.parse(cleaned) as T };
   } catch {
-    // Try to extract JSON from markdown
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       try {

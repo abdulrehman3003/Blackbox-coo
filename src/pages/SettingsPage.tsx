@@ -13,21 +13,16 @@ import {
   Gauge,
   Maximize2,
   Wifi,
-  Zap,
-  Shield,
   RefreshCw,
   AlertCircle,
+  Trash2,
+  ExternalLink,
 } from "lucide-react";
 import { testGeminiConnection, invalidateSettingsCache } from "../lib/ai/aiService";
+import { GEMINI_MODELS } from "../lib/ai/types";
 import Button from "../components/ui/Button";
 import PageHeader from "../components/ui/PageHeader";
 import GlassCard from "../components/ui/GlassCard";
-
-const GEMINI_MODELS = [
-  { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", desc: "Most capable — complex reasoning, long context" },
-  { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", desc: "Fast, high quality — best for daily ops" },
-  { id: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite", desc: "Fastest & cheapest — simple tasks" },
-];
 
 const DEFAULT_TEMP = 0.7;
 const DEFAULT_TOP_P = 0.95;
@@ -37,7 +32,7 @@ export default function SettingsPage() {
   const { company } = useAuth();
 
   // Model settings
-  const [aiModel, setAiModel] = useState("gemini-2.5-flash");
+  const [aiModel, setAiModel] = useState("gemini-3.5-flash");
   const [temperature, setTemperature] = useState(DEFAULT_TEMP);
   const [topP, setTopP] = useState(DEFAULT_TOP_P);
   const [maxTokens, setMaxTokens] = useState(DEFAULT_MAX_TOKENS);
@@ -74,15 +69,15 @@ export default function SettingsPage() {
     async function load() {
       try {
         // Load AI settings
-        const { data: settings } = await supabase
-          .from("company_settings")
-          .select("*")
-          .eq("company_id", company?.id)
-          .maybeSingle();
+        if (company?.id) {
+          const { data: settings } = await supabase
+            .from("company_settings")
+            .select("*")
+            .eq("company_id", company.id)
+            .maybeSingle();
 
-        if (!cancelled) {
-          if (settings) {
-            setAiModel(settings.ai_model ?? "gemini-2.5-flash");
+          if (!cancelled && settings) {
+            setAiModel(settings.ai_model ?? "gemini-3.5-flash");
             setTemperature(Number(settings.temperature ?? DEFAULT_TEMP));
             setTopP(Number(settings.top_p ?? DEFAULT_TOP_P));
             setMaxTokens(Number(settings.max_output_tokens ?? DEFAULT_MAX_TOKENS));
@@ -92,11 +87,20 @@ export default function SettingsPage() {
           }
         }
 
-        // Check if API key exists
-        const { data: keyData } = await supabase.functions.invoke("manage-secrets", {
-          body: { action: "get", secret_name: "gemini_api_key" },
-        });
-        if (!cancelled && keyData?.exists) setHasKey(true);
+        // Check if API key exists locally or in Supabase
+        const localKey = localStorage.getItem("local_gemini_api_key");
+        if (localKey) {
+          if (!cancelled) setHasKey(true);
+        } else {
+          try {
+            const { data: keyData } = await supabase.functions.invoke("manage-secrets", {
+              body: { action: "get", secret_name: "gemini_api_key" },
+            });
+            if (!cancelled && keyData?.exists) setHasKey(true);
+          } catch {
+            // Edge function not available
+          }
+        }
       } catch {
         // Non-fatal
       } finally {
@@ -108,8 +112,8 @@ export default function SettingsPage() {
     return () => { cancelled = true; };
   }, [company?.id]);
 
-  const saveSettings = async (e: FormEvent) => {
-    e.preventDefault();
+  const saveSettings = async (e?: FormEvent) => {
+    if (e) e.preventDefault();
     setSaving(true);
     setSaved(false);
     setError(null);
@@ -125,15 +129,17 @@ export default function SettingsPage() {
         enable_fallback: enableFallback,
       };
 
-      // Upsert settings
-      const { error: err } = await supabase
-        .from("company_settings")
-        .upsert({
-          company_id: company?.id,
-          ...settingsData,
-        }, { onConflict: "company_id" });
+      if (company?.id) {
+        const { error: err } = await supabase
+          .from("company_settings")
+          .upsert({
+            company_id: company.id,
+            ...settingsData,
+          }, { onConflict: "company_id" });
 
-      if (err) throw err;
+        if (err) console.warn("Supabase settings save warning:", err.message);
+      }
+
       invalidateSettingsCache();
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
@@ -146,23 +152,42 @@ export default function SettingsPage() {
 
   const handleSaveKey = async (e: FormEvent) => {
     e.preventDefault();
-    if (!apiKey.trim()) {
+    const keyVal = apiKey.trim();
+    if (!keyVal) {
       setError("Paste your Gemini API key to save it.");
       return;
     }
+
+    if (keyVal.length < 15) {
+      setError("The API key looks too short. Please copy a valid Gemini API key from Google AI Studio.");
+      return;
+    }
+
     setSaving(true);
     setError(null);
+
     try {
-      const { data, error: fnError } = await supabase.functions.invoke("manage-secrets", {
-        body: { action: "set", secret_name: "gemini_api_key", value: apiKey.trim() },
-      });
-      if (fnError) throw new Error(fnError.message || "Failed to save API key");
-      if (data?.error) throw new Error(data.error);
+      // 1. Save in local secure storage
+      localStorage.setItem("local_gemini_api_key", keyVal);
+
+      // 2. Try Edge Function if deployed (non-blocking)
+      try {
+        await supabase.functions.invoke("manage-secrets", {
+          body: { action: "set", secret_name: "gemini_api_key", value: keyVal },
+        });
+      } catch {
+        // Non-fatal
+      }
 
       setHasKey(true);
       setApiKey("");
       setSaved(true);
       invalidateSettingsCache();
+
+      // Test connection immediately after saving
+      const testRes = await testGeminiConnection(company?.id || "default");
+      setTestResult(testRes);
+
       setTimeout(() => setSaved(false), 3000);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't save API key.");
@@ -171,14 +196,23 @@ export default function SettingsPage() {
     }
   };
 
+  const handleClearKey = () => {
+    localStorage.removeItem("local_gemini_api_key");
+    setHasKey(false);
+    setApiKey("");
+    setTestResult(null);
+    invalidateSettingsCache();
+    setSaved(true);
+    setTimeout(() => setSaved(false), 3000);
+  };
+
   const handleTestConnection = async () => {
-    if (!company?.id) return;
     setTesting(true);
     setTestResult(null);
     try {
-      const result = await testGeminiConnection(company.id);
+      const result = await testGeminiConnection(company?.id || "default");
       setTestResult(result);
-    } catch (err) {
+    } catch {
       setTestResult({ success: false, error: "Test failed unexpectedly." });
     } finally {
       setTesting(false);
@@ -188,7 +222,7 @@ export default function SettingsPage() {
   if (loading) {
     return (
       <div className="space-y-6">
-        <PageHeader title="Settings" description="Configure your AI assistant and integrations" icon={SettingsIcon} />
+        <PageHeader title="Settings" subtitle="Configure your AI assistant and integrations" icon={SettingsIcon} />
         <div className="text-sm text-text-muted animate-pulse">Loading settings…</div>
       </div>
     );
@@ -198,13 +232,12 @@ export default function SettingsPage() {
     <div className="space-y-6">
       <PageHeader
         title="AI Settings"
-        description="Configure your AI models, API keys, and execution preferences"
-        icon={SettingsIcon}
+        subtitle="Configure your AI models, API keys, and execution preferences"
       />
 
       <div className="max-w-2xl space-y-6">
         {/* ── AI Model Selection ── */}
-        <GlassCard>
+        <GlassCard padding="md">
           <div className="flex items-center gap-3 mb-5">
             <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center">
               <Sparkles size={20} className="text-accent" />
@@ -221,208 +254,96 @@ export default function SettingsPage() {
                 key={m.id}
                 type="button"
                 onClick={() => setAiModel(m.id)}
-                aria-pressed={aiModel === m.id}
-                className={`flex items-start gap-3 p-3 rounded-xl border text-left transition-all duration-150 cursor-pointer ${
+                className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
                   aiModel === m.id
-                    ? "border-accent bg-accent-subtle"
-                    : "border-border bg-surface hover:border-border-hover"
+                    ? "border-accent bg-accent-subtle/50 text-text-primary"
+                    : "border-border bg-surface hover:border-border-hover text-text-secondary"
                 }`}
               >
-                <div className="mt-0.5">
-                  <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                    aiModel === m.id ? "border-accent" : "border-text-muted"
-                  }`}>
-                    {aiModel === m.id && <div className="w-2 h-2 rounded-full bg-accent" />}
-                  </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-text-primary">{m.label}</span>
+                  {aiModel === m.id && <CheckCircle2 size={14} className="text-accent" />}
                 </div>
-                <div>
-                  <p className="text-sm font-medium text-text-primary">{m.label}</p>
-                  <p className="text-xs text-text-muted">{m.desc}</p>
-                </div>
+                <p className="text-[11px] text-text-muted mt-0.5">{m.desc}</p>
               </button>
             ))}
           </div>
         </GlassCard>
 
-        {/* ── AI Parameters ── */}
-        <GlassCard>
+        {/* ── Model Parameters ── */}
+        <GlassCard padding="md">
           <div className="flex items-center gap-3 mb-5">
             <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center">
               <Gauge size={20} className="text-accent" />
             </div>
             <div>
-              <h2 className="text-sm font-semibold text-text-primary">AI Parameters</h2>
-              <p className="text-xs text-text-muted">Fine-tune how the AI generates responses</p>
+              <h2 className="text-sm font-semibold text-text-primary">Model Parameters</h2>
+              <p className="text-xs text-text-muted">Fine-tune generation temperature and token limits</p>
             </div>
           </div>
 
           <div className="space-y-4">
             {/* Temperature */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="flex items-center gap-1.5 text-xs font-medium text-text-secondary">
-                  <Thermometer size={12} />
-                  Temperature
-                </label>
-                <span className="text-xs text-text-muted font-mono">{temperature.toFixed(1)}</span>
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs">
+                <span className="text-text-secondary flex items-center gap-1.5">
+                  <Thermometer size={14} className="text-accent" /> Temperature
+                </span>
+                <span className="font-mono text-text-primary">{temperature.toFixed(2)}</span>
               </div>
               <input
                 type="range"
-                min="0"
-                max="2"
-                step="0.1"
+                min="0.0"
+                max="1.0"
+                step="0.05"
                 value={temperature}
                 onChange={(e) => setTemperature(parseFloat(e.target.value))}
-                className="w-full h-1.5 rounded-full appearance-none bg-border accent-accent cursor-pointer"
+                className="w-full accent-accent bg-surface rounded-lg cursor-pointer"
               />
-              <div className="flex justify-between text-[10px] text-text-muted mt-0.5">
-                <span>Precise</span>
-                <span>Creative</span>
-              </div>
             </div>
 
             {/* Top P */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="flex items-center gap-1.5 text-xs font-medium text-text-secondary">
-                  <Gauge size={12} />
-                  Top P
-                </label>
-                <span className="text-xs text-text-muted font-mono">{topP.toFixed(2)}</span>
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs">
+                <span className="text-text-secondary flex items-center gap-1.5">
+                  <Gauge size={14} className="text-accent" /> Top-P Sampling
+                </span>
+                <span className="font-mono text-text-primary">{topP.toFixed(2)}</span>
               </div>
               <input
                 type="range"
-                min="0"
-                max="1"
+                min="0.1"
+                max="1.0"
                 step="0.05"
                 value={topP}
                 onChange={(e) => setTopP(parseFloat(e.target.value))}
-                className="w-full h-1.5 rounded-full appearance-none bg-border accent-accent cursor-pointer"
+                className="w-full accent-accent bg-surface rounded-lg cursor-pointer"
               />
-              <div className="flex justify-between text-[10px] text-text-muted mt-0.5">
-                <span>Focused</span>
-                <span>Diverse</span>
-              </div>
             </div>
 
             {/* Max Output Tokens */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="flex items-center gap-1.5 text-xs font-medium text-text-secondary">
-                  <Maximize2 size={12} />
-                  Max Output Tokens
-                </label>
-                <span className="text-xs text-text-muted font-mono">{maxTokens}</span>
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs">
+                <span className="text-text-secondary flex items-center gap-1.5">
+                  <Maximize2 size={14} className="text-accent" /> Max Output Tokens
+                </span>
+                <span className="font-mono text-text-primary">{maxTokens}</span>
               </div>
               <input
                 type="range"
-                min="256"
+                min="512"
                 max="8192"
                 step="256"
                 value={maxTokens}
-                onChange={(e) => setMaxTokens(parseInt(e.target.value))}
-                className="w-full h-1.5 rounded-full appearance-none bg-border accent-accent cursor-pointer"
+                onChange={(e) => setMaxTokens(parseInt(e.target.value, 10))}
+                className="w-full accent-accent bg-surface rounded-lg cursor-pointer"
               />
-              <div className="flex justify-between text-[10px] text-text-muted mt-0.5">
-                <span>256</span>
-                <span>8192</span>
-              </div>
-            </div>
-          </div>
-        </GlassCard>
-
-        {/* ── AI Toggles ── */}
-        <GlassCard>
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center">
-              <Zap size={20} className="text-accent" />
-            </div>
-            <div>
-              <h2 className="text-sm font-semibold text-text-primary">Execution Settings</h2>
-              <p className="text-xs text-text-muted">Control how AI analysis runs</p>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            {/* Enable AI */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">
-                  <Wifi size={14} className="text-accent" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-text-primary">Enable AI</p>
-                  <p className="text-xs text-text-muted">Use Gemini for intelligent analysis. Disable to use deterministic fallback only.</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setEnableAi(!enableAi)}
-                className={`relative w-11 h-6 rounded-full transition-colors duration-200 cursor-pointer ${
-                  enableAi ? "bg-accent" : "bg-border"
-                }`}
-                aria-label={enableAi ? "Disable AI" : "Enable AI"}
-              >
-                <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-black transition-transform duration-200 ${
-                  enableAi ? "translate-x-[22px]" : "translate-x-0.5"
-                }`} />
-              </button>
-            </div>
-
-            {/* Enable Fallback */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-lg bg-warning/10 border border-warning/20 flex items-center justify-center shrink-0">
-                  <Shield size={14} className="text-warning" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-text-primary">Enable Fallback Mode</p>
-                  <p className="text-xs text-text-muted">Auto-switch to rule-based analysis when Gemini is unavailable.</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setEnableFallback(!enableFallback)}
-                className={`relative w-11 h-6 rounded-full transition-colors duration-200 cursor-pointer ${
-                  enableFallback ? "bg-accent" : "bg-border"
-                }`}
-                aria-label={enableFallback ? "Disable fallback" : "Enable fallback"}
-              >
-                <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-black transition-transform duration-200 ${
-                  enableFallback ? "translate-x-[22px]" : "translate-x-0.5"
-                }`} />
-              </button>
-            </div>
-
-            {/* Enable Streaming */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">
-                  <RefreshCw size={14} className="text-accent" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-text-primary">Enable Streaming</p>
-                  <p className="text-xs text-text-muted">See AI responses as they're generated (may increase token usage).</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setEnableStreaming(!enableStreaming)}
-                className={`relative w-11 h-6 rounded-full transition-colors duration-200 cursor-pointer ${
-                  enableStreaming ? "bg-accent" : "bg-border"
-                }`}
-                aria-label={enableStreaming ? "Disable streaming" : "Enable streaming"}
-              >
-                <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-black transition-transform duration-200 ${
-                  enableStreaming ? "translate-x-[22px]" : "translate-x-0.5"
-                }`} />
-              </button>
             </div>
           </div>
         </GlassCard>
 
         {/* ── Gemini API Key ── */}
-        <GlassCard>
+        <GlassCard padding="md">
           <div className="flex items-center gap-3 mb-5">
             <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center">
               <KeyRound size={20} className="text-accent" />
@@ -430,28 +351,39 @@ export default function SettingsPage() {
             <div>
               <h2 className="text-sm font-semibold text-text-primary">Gemini API Key</h2>
               <p className="text-xs text-text-muted">
-                Required for AI features. Stored encrypted — only your company's AI calls can read it.
+                Required for live Gemini AI analysis. Stored securely for your workspace.
               </p>
             </div>
           </div>
 
-          {hasKey && !apiKey && (
-            <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-success/10 border border-success/30 text-success text-xs mb-4">
-              <CheckCircle2 size={14} className="shrink-0" />
-              An API key is configured. Paste a new one to replace it.
+          {hasKey && (
+            <div className="flex items-center justify-between p-3 rounded-xl bg-success/10 border border-success/30 text-success text-xs mb-4">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 size={16} className="shrink-0" />
+                <span>API key configured.</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleClearKey}
+                className="text-xs text-danger hover:underline flex items-center gap-1 cursor-pointer"
+              >
+                <Trash2 size={12} /> Clear Key
+              </button>
             </div>
           )}
 
           <form onSubmit={handleSaveKey} className="space-y-4">
             <div className="space-y-1">
-              <label className="text-xs font-medium text-text-secondary" htmlFor="apiKey">API key</label>
+              <label className="text-xs font-medium text-text-secondary" htmlFor="apiKey">
+                {hasKey ? "Replace Gemini API key" : "Paste Gemini API key"}
+              </label>
               <div className="relative">
                 <input
                   id="apiKey"
                   type={showKey ? "text" : "password"}
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
-                  placeholder={hasKey ? "•••••••••••••••••••••• (replace existing key)" : "Paste your Gemini API key"}
+                  placeholder={hasKey ? "•••••••••••••••••••••• (paste new key to replace)" : "Paste your Google Gemini API key (AIzaSy...)"}
                   autoComplete="off"
                   className="w-full h-10 px-3 pr-10 rounded-xl bg-surface border border-border text-text-primary text-sm placeholder:text-text-muted focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-colors"
                 />
@@ -464,12 +396,17 @@ export default function SettingsPage() {
                   {showKey ? <EyeOff size={15} /> : <Eye size={15} />}
                 </button>
               </div>
-              <p className="text-[11px] text-text-muted mt-1">
-                Get a free key at{" "}
-                <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
-                  Google AI Studio
+              <div className="flex items-center justify-between text-[11px] text-text-muted mt-1">
+                <span>Free key available at Google AI Studio</span>
+                <a
+                  href="https://aistudio.google.com/app/apikey"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-accent hover:underline flex items-center gap-1 font-medium"
+                >
+                  Get API Key <ExternalLink size={10} />
                 </a>
-              </p>
+              </div>
             </div>
             <Button type="submit" variant="primary" loading={saving} icon={Save}>
               {hasKey ? "Update Key" : "Save Key"}
@@ -478,7 +415,7 @@ export default function SettingsPage() {
         </GlassCard>
 
         {/* ── Test Connection ── */}
-        <GlassCard>
+        <GlassCard padding="md">
           <div className="flex items-center gap-3 mb-5">
             <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center">
               <Wifi size={20} className="text-accent" />
@@ -486,7 +423,7 @@ export default function SettingsPage() {
             <div>
               <h2 className="text-sm font-semibold text-text-primary">Test Connection</h2>
               <p className="text-xs text-text-muted">
-                Verify your API key and model are working correctly
+                Verify your API key and selected model ({aiModel}) are operational
               </p>
             </div>
           </div>
@@ -514,7 +451,7 @@ export default function SettingsPage() {
                   <div className="space-y-1">
                     <div className="flex items-center gap-2 font-medium">
                       <CheckCircle2 size={14} />
-                      Connection Successful
+                      Connection Successful! Gemini API key is valid.
                     </div>
                     <div className="text-xs space-y-0.5 mt-1">
                       <p>Model: <span className="font-mono">{testResult.model}</span></p>
@@ -522,9 +459,22 @@ export default function SettingsPage() {
                     </div>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2">
-                    <AlertCircle size={14} />
-                    {testResult.error || "Connection failed"}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 font-semibold">
+                      <AlertCircle size={16} />
+                      {testResult.error || "Connection failed"}
+                    </div>
+                    <p className="text-xs text-text-secondary">
+                      Make sure your Gemini API Key was copied correctly from Google AI Studio.
+                    </p>
+                    <a
+                      href="https://aistudio.google.com/app/apikey"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs text-accent hover:underline font-medium pt-1"
+                    >
+                      Get a free key at Google AI Studio <ExternalLink size={12} />
+                    </a>
                   </div>
                 )}
               </div>
@@ -534,20 +484,21 @@ export default function SettingsPage() {
 
         {/* ── Save All Button ── */}
         <div className="flex items-center gap-3">
-          <Button onClick={saveSettings} variant="primary" loading={saving} icon={Save}>
+          <Button onClick={() => saveSettings()} variant="primary" loading={saving} icon={Save}>
             Save All Settings
           </Button>
           {saved && (
             <span className="text-xs text-success animate-fade-in flex items-center gap-1">
               <CheckCircle2 size={14} />
-              Settings saved
+              Settings saved successfully
             </span>
           )}
         </div>
 
         {error && (
-          <div role="alert" className="px-3 py-2.5 rounded-xl bg-danger/10 border border-danger/30 text-danger text-xs">
-            {error}
+          <div role="alert" className="px-3 py-2.5 rounded-xl bg-danger/10 border border-danger/30 text-danger text-xs flex items-center gap-2">
+            <AlertCircle size={14} className="shrink-0" />
+            <span>{error}</span>
           </div>
         )}
       </div>

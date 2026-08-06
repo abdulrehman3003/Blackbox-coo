@@ -133,7 +133,7 @@ export interface AISettings {
 }
 
 export const DEFAULT_AI_SETTINGS: AISettings = {
-  ai_model: "gemini-2.5-flash",
+  ai_model: "gemini-3.5-flash",
   temperature: 0.7,
   top_p: 0.95,
   max_output_tokens: 4096,
@@ -144,9 +144,13 @@ export const DEFAULT_AI_SETTINGS: AISettings = {
 };
 
 export const GEMINI_MODELS = [
-  { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", desc: "Most capable — complex reasoning, long context" },
-  { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", desc: "Fast, high quality — best for daily ops" },
-  { id: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite", desc: "Fastest & cheapest — simple tasks" },
+  { id: "gemini-3.5-flash", label: "Gemini 3.5 Flash", desc: "Ultra performance & high-speed reasoning" },
+  { id: "gemini-3.1-flash-lite", label: "Gemini 3.1 Flash Lite", desc: "Fastest & lowest token cost model" },
+  { id: "gemini-3-flash-preview", label: "Gemini 3.0 Flash Preview", desc: "Cutting-edge preview model" },
+  { id: "gemini-3.1-flash-live-preview", label: "Gemini 3.1 Flash Live Preview", desc: "Real-time low latency preview model" },
+  { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", desc: "Advanced multi-agent reasoning & complex analysis" },
+  { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", desc: "High quality model for daily operations" },
+  { id: "gemini-1.5-flash", label: "Gemini 1.5 Flash", desc: "Production-ready stable fallback model" },
 ] as const;
 
 /* ─── Pipeline Execution ─── */

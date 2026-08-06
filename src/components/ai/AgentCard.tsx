@@ -14,7 +14,7 @@ import {
 import type { AgentExecutionResult, AgentName, AgentStatus } from "../../lib/ai/types";
 
 /* ── Agent visual config ── */
-const AGENT_VISUALS: Record<AgentName, { emoji: string; color: string; label: string }> = {
+export const AGENT_VISUALS: Record<AgentName, { emoji: string; color: string; label: string }> = {
   finance: { emoji: "💰", color: "#22C55E", label: "Finance Agent" },
   sales: { emoji: "📈", color: "#3B82F6", label: "Sales Agent" },
   inventory: { emoji: "📦", color: "#F59E0B", label: "Inventory Agent" },
@@ -40,7 +40,7 @@ export default function AgentCard({
   onRun,
   onHistory,
 }: AgentCardProps) {
-  const visual = AGENT_VISUALS[agentName];
+  const visual = AGENT_VISUALS[agentName] || AGENT_VISUALS.finance;
   const isActive = status === "running" || status === "thinking";
   const isCompleted = status === "completed";
 
@@ -163,5 +163,3 @@ export default function AgentCard({
     </div>
   );
 }
-
-export { AGENT_VISUALS };

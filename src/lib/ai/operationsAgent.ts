@@ -1,8 +1,7 @@
 /**
- * Operations Agent — AI-powered operations analysis
+ * Operations Agent — AI-powered operational analysis
  *
- * Analyzes workflows, generates daily priorities, operational improvements,
- * task recommendations, and efficiency improvements.
+ * Analyzes workflows, priorities, bottlenecks, and efficiency improvements.
  * Falls back to deterministic logic when Gemini is unavailable.
  */
 
@@ -11,7 +10,7 @@ import { callAI, parseAIResponse } from "./aiService";
 import { operationsFallback } from "./fallbackEngine";
 import type { AgentOutput, AgentName, OperationsAgentData } from "./types";
 
-export const OPERATIONS_SYSTEM_PROMPT = `You are an expert COO and operations analyst.
+export const OPERATIONS_SYSTEM_PROMPT = `You are an expert Chief Operating Officer and operations specialist.
 
 Analyze the provided operational data and return ONLY a valid JSON object.
 Do NOT include markdown code blocks, explanations, or any text outside the JSON.
@@ -23,8 +22,8 @@ Return exactly this JSON structure:
 {
   "summary": "Concise 2-sentence summary of operational health",
   "score": 0-100 numeric score,
-  "risks": [{"title": "Risk name", "severity": "high|medium|low", "detail": "Specific detail"}],
-  "opportunities": [{"title": "Improvement opportunity", "impact": "high|medium|low", "detail": "Detail"}],
+  "risks": [{"title": "Risk name", "severity": "high|medium|low", "detail": "Specific detail with numbers"}],
+  "opportunities": [{"title": "Opportunity", "impact": "high|medium|low", "detail": "Detail"}],
   "recommendations": [{"title": "Action item", "priority": "urgent|high|medium|low", "category": "Operations", "description": "Why and how"}],
   "confidence": 0-100,
   "warnings": ["warning text"],
@@ -34,7 +33,7 @@ Return exactly this JSON structure:
 export const OPERATIONS_AGENT_CONFIG = {
   name: "operations" as AgentName,
   label: "Operations Agent",
-  description: "Analyzes workflows, priorities, and efficiency improvements",
+  description: "Analyzes workflows, priorities, bottlenecks, and efficiency improvements",
   emoji: "⚙️",
   color: "#8B5CF6",
 };
@@ -85,72 +84,69 @@ export async function runOperationsAgent(companyId: string): Promise<{
   }
 }
 
-async function gatherOperationsData(companyId: string): Promise<OperationsAgentData> {
-  const now = new Date();
-  const thirtyDaysAgo = new Date(now);
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-  const [tasksRes, inventoryRes, salesRes] = await Promise.all([
+export async function gatherOperationsData(companyId: string): Promise<OperationsAgentData> {
+  const [tasksRes, inventoryRes] = await Promise.all([
     supabase.from("tasks").select("*").eq("company_id", companyId),
-    supabase.from("inventory").select("name, quantity, reorder_level").eq("company_id", companyId),
-    supabase.from("sales").select("amount, sold_at").eq("company_id", companyId).gte("sold_at", thirtyDaysAgo.toISOString()),
+    supabase.from("inventory").select("name, quantity, min_quantity").eq("company_id", companyId),
   ]);
 
   const tasks = tasksRes.data ?? [];
-  const items = inventoryRes.data ?? [];
-  const sales = salesRes.data ?? [];
+  const inventory = inventoryRes.data ?? [];
+
+  const pendingTasks = tasks.filter((t) => t.status !== "completed");
+  const overdueTasks = tasks.filter((t) => {
+    if (t.status === "completed" || !t.due_date) return false;
+    return new Date(t.due_date) < new Date();
+  });
+
+  const lowStockCount = inventory.filter(
+    (i) => Number(i.quantity) <= Number(i.min_quantity ?? 10)
+  ).length;
 
   const dailyPriorities: string[] = [];
-  const improvements: string[] = [];
-  const workflowIssues: string[] = [];
-
-  // Task analysis
-  const overdueTasks = tasks.filter((t) => t.status !== "done" && t.due_date && new Date(t.due_date) < now);
   if (overdueTasks.length > 0) {
-    dailyPriorities.push(`Complete ${overdueTasks.length} overdue task(s)`);
-    workflowIssues.push(`${overdueTasks.length} tasks are overdue — review timelines.`);
+    dailyPriorities.push(`Resolve ${overdueTasks.length} overdue task(s) immediately`);
   }
-
-  const pendingTasks = tasks.filter((t) => t.status === "todo" || t.status === "in_progress");
+  if (lowStockCount > 0) {
+    dailyPriorities.push(`Reorder ${lowStockCount} low-stock inventory item(s)`);
+  }
   if (pendingTasks.length > 0) {
-    dailyPriorities.push(`Process ${pendingTasks.length} pending task(s) by priority`);
+    dailyPriorities.push(`Process ${pendingTasks.length} pending operational task(s)`);
+  }
+  if (dailyPriorities.length === 0) {
+    dailyPriorities.push("Review weekly team task assignments", "Audit supplier delivery lead times");
   }
 
-  // Inventory checks
-  const lowStockItems = items.filter((i) => Number(i.quantity) <= Number(i.reorder_level));
-  if (lowStockItems.length > 0) {
-    dailyPriorities.push(`Reorder ${lowStockItems.length} low-stock item(s)`);
+  const improvements: string[] = [];
+  if (overdueTasks.length > 0) {
+    improvements.push("Set up automated task due-date reminders for assigned team members");
+  }
+  if (lowStockCount > 2) {
+    improvements.push("Implement automated reorder triggers when stock reaches minimum thresholds");
+  }
+  improvements.push("Standardize order fulfillment checklist to reduce processing time");
+
+  const workflowIssues: string[] = [];
+  if (overdueTasks.length > 0) {
+    workflowIssues.push(`${overdueTasks.length} task(s) are past their due date`);
+  }
+  if (lowStockCount > 0) {
+    workflowIssues.push(`${lowStockCount} product(s) are at or below minimum stock levels`);
   }
 
-  // Sales velocity
-  if (sales.length > 0) {
-    const avgDailySales = sales.reduce((s, r) => s + Number(r.amount), 0) / 30;
-    dailyPriorities.push(`Daily sales target: $${avgDailySales.toFixed(2)}`);
-  }
-
-  // General improvements
-  improvements.push("Review and optimize top 3 operational bottlenecks");
-  improvements.push("Update SOPs based on recent process changes");
-  improvements.push("Schedule weekly team standup for operational alignment");
-
-  if (items.length === 0) {
-    improvements.push("Set up inventory tracking system");
-    workflowIssues.push("No inventory items tracked — add items to enable stock management.");
-  }
-
-  // Efficiency score
-  const inventoryTracked = items.length > 0 ? 20 : 0;
-  const tasksManaged = pendingTasks.length > 0 ? 20 : 0;
-  const salesRecent = sales.length > 0 ? 20 : 0;
-  const overduePenalty = overdueTasks.length > 0 ? Math.min(overdueTasks.length * 5, 30) : 0;
-  const efficiencyScore = Math.max(0, Math.min(100, inventoryTracked + tasksManaged + salesRecent + 40 - overduePenalty));
+  const totalTasksCount = tasks.length;
+  const completedTasksCount = tasks.filter((t) => t.status === "completed").length;
+  const taskCompletionRate = totalTasksCount > 0 ? (completedTasksCount / totalTasksCount) * 100 : 75;
+  const efficiencyScore = Math.round(
+    taskCompletionRate * 0.6 + (lowStockCount === 0 ? 40 : Math.max(10, 40 - lowStockCount * 5))
+  );
 
   return {
-    dailyPriorities: dailyPriorities.slice(0, 5),
-    improvements: improvements.slice(0, 5),
-    taskRecommendations: dailyPriorities.slice(0, 3),
-    efficiencyScore,
-    workflowIssues: workflowIssues.slice(0, 3),
+    dailyPriorities,
+    improvements,
+    taskRecommendations: improvements,
+    efficiencyScore: Math.max(0, Math.min(100, efficiencyScore)),
+    workflowIssues,
   };
 }
 

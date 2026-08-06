@@ -96,7 +96,7 @@ export async function runFinanceAgent(companyId: string): Promise<{
   }
 }
 
-async function gatherFinanceData(companyId: string): Promise<FinanceAgentData> {
+export async function gatherFinanceData(companyId: string): Promise<FinanceAgentData> {
   const now = new Date();
   const sixMonthsAgo = new Date(now);
   sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);

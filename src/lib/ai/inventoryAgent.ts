@@ -1,7 +1,7 @@
 /**
- * Inventory Agent — AI-powered inventory analysis
+ * Inventory Agent — AI-powered inventory & stock analysis
  *
- * Analyzes stock levels, turnover, low stock, dead stock, shortages, and reorder needs.
+ * Analyzes stock levels, turnover, low stock, shortages, and reorder needs.
  * Falls back to deterministic logic when Gemini is unavailable.
  */
 
@@ -10,7 +10,7 @@ import { callAI, parseAIResponse } from "./aiService";
 import { inventoryFallback } from "./fallbackEngine";
 import type { AgentOutput, AgentName, InventoryAgentData } from "./types";
 
-export const INVENTORY_SYSTEM_PROMPT = `You are an expert supply chain and inventory manager.
+export const INVENTORY_SYSTEM_PROMPT = `You are an expert Inventory Manager and supply chain analyst.
 
 Analyze the provided inventory data and return ONLY a valid JSON object.
 Do NOT include markdown code blocks, explanations, or any text outside the JSON.
@@ -84,90 +84,73 @@ export async function runInventoryAgent(companyId: string): Promise<{
   }
 }
 
-async function gatherInventoryData(companyId: string): Promise<InventoryAgentData> {
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-  const [itemsRes, salesRes] = await Promise.all([
+export async function gatherInventoryData(companyId: string): Promise<InventoryAgentData> {
+  const [inventoryRes, salesRes] = await Promise.all([
     supabase.from("inventory").select("*").eq("company_id", companyId),
-    supabase.from("sales").select("item_name, quantity").eq("company_id", companyId).gte("sold_at", thirtyDaysAgo.toISOString()),
+    supabase.from("sales").select("item_name, quantity").eq("company_id", companyId),
   ]);
 
-  const items = itemsRes.data ?? [];
-  const recentSales = salesRes.data ?? [];
+  const inventory = inventoryRes.data ?? [];
+  const sales = salesRes.data ?? [];
 
-  // Sales velocity
-  const velocity = new Map<string, number>();
-  recentSales.forEach((s) => {
-    velocity.set(s.item_name, (velocity.get(s.item_name) ?? 0) + Number(s.quantity));
-  });
-  velocity.forEach((total, name) => velocity.set(name, total / 30));
+  const totalItems = inventory.length;
 
-  const totalItems = items.length;
-  let inventoryValue = 0;
+  // Inventory value
+  const inventoryValue = inventory.reduce((s, item) => {
+    const cost = Number(item.cost_per_unit ?? item.unit_cost ?? 0);
+    return s + Number(item.quantity) * cost;
+  }, 0);
 
-  // Low stock
-  const lowStockItems: InventoryAgentData["lowStockItems"] = [];
-  // Overstock
-  const overstockItems: InventoryAgentData["overstockItems"] = [];
-  // Shortages
-  const shortages: InventoryAgentData["shortages"] = [];
+  // Low stock items
+  const lowStockItems: { name: string; quantity: number; reorderLevel: number; suggestedReorder: number }[] = [];
+  const overstockItems: { name: string; quantity: number; excess: number }[] = [];
 
-  items.forEach((item) => {
+  inventory.forEach((item) => {
     const qty = Number(item.quantity);
-    const cost = Number(item.unit_cost ?? 0);
-    const reorder = Number(item.reorder_level ?? 10);
-    inventoryValue += qty * cost;
+    const minQty = Number(item.min_quantity ?? item.reorder_level ?? 10);
+    const maxQty = Number(item.max_quantity ?? minQty * 3);
 
-    if (qty <= reorder) {
-      const dailyRate = velocity.get(item.name) ?? 0;
+    if (qty <= minQty) {
       lowStockItems.push({
         name: item.name,
         quantity: qty,
-        reorderLevel: reorder,
-        suggestedReorder: Math.max(Math.ceil(dailyRate * 14), reorder * 2),
+        reorderLevel: minQty,
+        suggestedReorder: maxQty - qty,
       });
-    }
-
-    // Overstock: more than 3x reorder level
-    if (reorder > 0 && qty > reorder * 3) {
+    } else if (qty > maxQty) {
       overstockItems.push({
         name: item.name,
         quantity: qty,
-        excess: qty - reorder * 2,
+        excess: qty - maxQty,
       });
-    }
-
-    const dailyRate = velocity.get(item.name) ?? 0;
-    if (dailyRate > 0) {
-      const daysUntilEmpty = Math.floor(qty / dailyRate);
-      if (daysUntilEmpty <= 30) {
-        shortages.push({ name: item.name, daysUntilEmpty });
-      }
     }
   });
 
-  // Stock health
-  let stockHealth = 100;
-  if (totalItems > 0) {
-    const lowRatio = lowStockItems.length / totalItems;
-    const shortageRatio = shortages.length / totalItems;
-    stockHealth = Math.max(0, Math.round(100 - lowRatio * 50 - shortageRatio * 30));
-  }
+  // Shortages (stock < 3 units)
+  const shortages = inventory
+    .filter((item) => Number(item.quantity) < 3)
+    .map((item) => ({
+      name: item.name,
+      daysUntilEmpty: Math.max(1, Math.round(Number(item.quantity) * 1.5)),
+    }));
 
-  // Turnover rate
-  const totalSold = recentSales.reduce((s, r) => s + Number(r.quantity), 0);
-  const avgStock = items.reduce((s, i) => s + Number(i.quantity), 0) / Math.max(totalItems, 1);
-  const turnoverRate = avgStock > 0 ? totalSold / avgStock : 0;
+  // Stock health score
+  const healthyCount = totalItems - lowStockItems.length - overstockItems.length;
+  const stockHealth = totalItems > 0 ? Math.round((healthyCount / totalItems) * 100) : 100;
+
+  // Turnover rate (total units sold / total units in stock)
+  const totalUnitsSold = sales.reduce((s, r) => s + Number(r.quantity ?? 1), 0);
+  const totalUnitsStock = inventory.reduce((s, i) => s + Number(i.quantity), 0);
+  const turnoverRate = totalUnitsStock > 0 ? Math.round((totalUnitsSold / totalUnitsStock) * 10) / 10 : 0;
 
   return {
     totalItems,
-    stockHealth,
+    stockHealth: Math.max(0, Math.min(100, stockHealth)),
     lowStockItems,
     overstockItems,
     shortages,
     inventoryValue: Math.round(inventoryValue * 100) / 100,
-    turnoverRate: Math.round(turnoverRate * 100) / 100,
+    turnoverRate,
   };
 }
 

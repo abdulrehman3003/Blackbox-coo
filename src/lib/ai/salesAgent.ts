@@ -84,7 +84,7 @@ export async function runSalesAgent(companyId: string): Promise<{
   }
 }
 
-async function gatherSalesData(companyId: string): Promise<SalesAgentData> {
+export async function gatherSalesData(companyId: string): Promise<SalesAgentData> {
   const now = new Date();
   const sixMonthsAgo = new Date(now);
   sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
@@ -118,37 +118,39 @@ async function gatherSalesData(companyId: string): Promise<SalesAgentData> {
   // At-risk customers
   const atRiskCustomers: { name: string; daysSinceLastVisit: number }[] = [];
   customers.forEach((c) => {
-    if (!c.last_visit_at) return;
-    const daysSince = Math.floor((now.getTime() - new Date(c.last_visit_at).getTime()) / (1000 * 60 * 60 * 24));
-    if (daysSince > 60) atRiskCustomers.push({ name: c.name, daysSinceLastVisit: daysSince });
+    const lastVisit = c.last_visit_at ? new Date(c.last_visit_at) : null;
+    if (lastVisit) {
+      const days = Math.floor((now.getTime() - lastVisit.getTime()) / (1000 * 60 * 60 * 24));
+      if (days > 30) atRiskCustomers.push({ name: c.name, daysSinceLastVisit: days });
+    }
   });
 
   // Top products
   const productMap = new Map<string, { name: string; quantity: number; revenue: number }>();
   sales.forEach((r) => {
-    const existing = productMap.get(r.item_name) ?? { name: r.item_name, quantity: 0, revenue: 0 };
-    existing.quantity += Number(r.quantity);
-    existing.revenue += Number(r.amount);
-    productMap.set(r.item_name, existing);
+    const name = r.item_name || "Unknown Product";
+    const current = productMap.get(name) ?? { name, quantity: 0, revenue: 0 };
+    current.quantity += Number(r.quantity ?? 1);
+    current.revenue += Number(r.amount);
+    productMap.set(name, current);
   });
   const topProducts = Array.from(productMap.values()).sort((a, b) => b.revenue - a.revenue).slice(0, 10);
 
-  // Retention rate (simplified: customers who visited more than once vs total)
-  const returningCustomers = customers.filter((c) => (c.visit_count ?? 0) > 1).length;
-  const retentionRate = customers.length > 0 ? (returningCustomers / customers.length) * 100 : 0;
-
-  // Churn rate (simplified: at risk / total)
-  const churnRate = customers.length > 0 ? (atRiskCustomers.length / customers.length) * 100 : 0;
+  // Retention and churn rate
+  const totalCustomers = customers.length;
+  const activeCustomers = totalCustomers - atRiskCustomers.length;
+  const retentionRate = totalCustomers > 0 ? Math.round((activeCustomers / totalCustomers) * 100) : 0;
+  const churnRate = 100 - retentionRate;
 
   return {
     totalSales: Math.round(totalSales * 100) / 100,
     salesGrowth: Math.round(salesGrowth * 100) / 100,
     topCustomers,
-    atRiskCustomers,
+    atRiskCustomers: atRiskCustomers.slice(0, 5),
     topProducts,
     averageOrderValue: Math.round(averageOrderValue * 100) / 100,
-    retentionRate: Math.round(retentionRate * 100) / 100,
-    churnRate: Math.round(churnRate * 100) / 100,
+    retentionRate,
+    churnRate,
   };
 }
 
