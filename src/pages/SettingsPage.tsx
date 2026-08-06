@@ -87,19 +87,10 @@ export default function SettingsPage() {
           }
         }
 
-        // Check if API key exists locally or in Supabase
+        // Check if API key exists locally
         const localKey = localStorage.getItem("local_gemini_api_key");
         if (localKey) {
           if (!cancelled) setHasKey(true);
-        } else {
-          try {
-            const { data: keyData } = await supabase.functions.invoke("manage-secrets", {
-              body: { action: "get", secret_name: "gemini_api_key" },
-            });
-            if (!cancelled && keyData?.exists) setHasKey(true);
-          } catch {
-            // Edge function not available
-          }
         }
       } catch {
         // Non-fatal
@@ -167,17 +158,8 @@ export default function SettingsPage() {
     setError(null);
 
     try {
-      // 1. Save in local secure storage
+      // Save the key in your browser — it stays on this device only
       localStorage.setItem("local_gemini_api_key", keyVal);
-
-      // 2. Try Edge Function if deployed (non-blocking)
-      try {
-        await supabase.functions.invoke("manage-secrets", {
-          body: { action: "set", secret_name: "gemini_api_key", value: keyVal },
-        });
-      } catch {
-        // Non-fatal
-      }
 
       setHasKey(true);
       setApiKey("");
@@ -351,7 +333,7 @@ export default function SettingsPage() {
             <div>
               <h2 className="text-sm font-semibold text-text-primary">Gemini API Key</h2>
               <p className="text-xs text-text-muted">
-                Required for live Gemini AI analysis. Stored securely for your workspace.
+                Your personal Gemini API key. Add yours here — each team member uses their own key. Stored in your browser.
               </p>
             </div>
           </div>

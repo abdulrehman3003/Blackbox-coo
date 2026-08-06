@@ -2,8 +2,8 @@
  * BlackBox COO — AI Service
  *
  * Single entry-point for ALL Gemini API calls.
- * Handles: auth, settings, retries, rate limits, error classification, logging.
- * Every agent calls this service; fallback to direct REST API when Edge Functions are unavailable.
+ * Handles: settings, retries, rate limits, error classification, logging.
+ * Every agent calls this service to generate AI responses using the user's personal API key.
  */
 
 import { supabase } from "../supabase";
@@ -50,18 +50,6 @@ export async function getAISettings(companyId: string): Promise<AISettings> {
     }
 
     const localKey = typeof window !== "undefined" ? localStorage.getItem("local_gemini_api_key") : null;
-    let keyDataExists = Boolean(localKey);
-
-    if (!keyDataExists) {
-      try {
-        const { data: keyData } = await supabase.functions.invoke("manage-secrets", {
-          body: { action: "get", secret_name: "gemini_api_key" },
-        });
-        if (keyData?.exists) keyDataExists = true;
-      } catch {
-        // Edge Function fallback
-      }
-    }
 
     const settings: AISettings = {
       ai_model: data?.ai_model ?? "gemini-3.5-flash",
@@ -71,7 +59,7 @@ export async function getAISettings(companyId: string): Promise<AISettings> {
       enable_streaming: data?.enable_streaming ?? false,
       enable_ai: data?.enable_ai ?? true,
       enable_fallback: data?.enable_fallback ?? true,
-      has_api_key: keyDataExists,
+      has_api_key: Boolean(localKey),
     };
 
     settingsCache = settings;
@@ -236,42 +224,7 @@ export async function callAI(
     try {
       const startTime = performance.now();
 
-      // 1. Try Supabase Edge Function first
-      try {
-        const { data, error } = await supabase.functions.invoke("call-gemini", {
-          body: {
-            company_id: companyId,
-            model: settings.ai_model,
-            system_prompt: systemPrompt,
-            user_prompt: userPrompt,
-            temperature: settings.temperature,
-            top_p: settings.top_p,
-            max_output_tokens: settings.max_output_tokens,
-          },
-        });
-
-        const latencyMs = Math.round(performance.now() - startTime);
-
-        if (!error && data && data.success) {
-          return {
-            success: true,
-            text: data.text || "",
-            model: data.model,
-            latencyMs,
-            usage: data.usage
-              ? {
-                  promptTokens: data.usage.prompt_tokens || 0,
-                  completionTokens: data.usage.completion_tokens || 0,
-                  totalTokens: data.usage.total_tokens || 0,
-                }
-              : undefined,
-          };
-        }
-      } catch {
-        // Edge Function unreachable or not deployed — proceed to direct fallback
-      }
-
-      // 2. Direct REST API Fallback
+      // Direct REST API with the user's personal API key
       if (localKey) {
         const directRes = await callDirectGeminiAPI(
           localKey,
@@ -282,7 +235,12 @@ export async function callAI(
           settings.top_p,
           settings.max_output_tokens
         );
-        if (directRes.success) return directRes;
+        if (directRes.success) {
+          return {
+            ...directRes,
+            latencyMs: Math.round(performance.now() - startTime),
+          };
+        }
         lastError = directRes.error;
       }
 
