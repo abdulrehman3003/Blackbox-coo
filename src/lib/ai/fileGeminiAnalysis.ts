@@ -1,127 +1,217 @@
 /**
- * File Gemini AI Analysis Service
+ * BlackBox COO — File-level Gemini AI Analysis
  *
- * Runs Google Gemini AI agent directly on imported workspace files.
+ * Analyzes an uploaded file's headers, sample rows, and summary stats
+ * through Google Gemini to return structured insights, risks, opportunities,
+ * and recommendations.
  */
 
-import { callAI, parseAIResponse } from "./aiService";
+import { callAI, parseAIResponse, invalidateSettingsCache } from "./aiService";
 import type { ImportedFile } from "../fileStorage";
 
-export interface FileGeminiResult {
-  summary: string;
-  score: number;
-  risks: { title: string; severity: "high" | "medium" | "low"; detail: string }[];
-  opportunities: { title: string; impact: "high" | "medium" | "low"; detail: string }[];
-  recommendations: { title: string; priority: "urgent" | "high" | "medium" | "low"; description: string }[];
-  warnings: string[];
-  insights: string[];
-  executionMode: "ai" | "fallback";
-  modelUsed?: string;
+/* ─── Types ─── */
+
+export type AnalysisMode = "auto" | "sales" | "expenses" | "inventory" | "customers";
+
+export interface FileGeminiRisk {
+  title: string;
+  severity: "high" | "medium" | "low";
+  detail: string;
 }
 
-export const FILE_ANALYSIS_SYSTEM_PROMPT = `You are an expert Google Gemini AI Data Analyst and Business Intelligence Agent.
+export interface FileGeminiOpportunity {
+  title: string;
+  impact: "high" | "medium" | "low";
+  detail: string;
+}
 
-Analyze the provided file data (file name, headers, row count, sample records, aggregate statistics) and return ONLY a valid JSON object.
-Do NOT include markdown code blocks, explanations, or any text outside the JSON.
-Do NOT hallucinate or invent numbers. Base your analysis strictly on the provided file headers, data types, sample rows, and numerical metrics.
+export interface FileGeminiRecommendation {
+  title: string;
+  description: string;
+}
 
-Return exactly this JSON structure:
+export interface FileGeminiResult {
+  executionMode: "ai" | "fallback";
+  modelUsed?: string;
+  summary: string;
+  score: number;
+  risks: FileGeminiRisk[];
+  opportunities: FileGeminiOpportunity[];
+  recommendations: FileGeminiRecommendation[];
+  insights: string[];
+}
+
+/* ─── Prompt Builder ─── */
+
+function buildSystemPrompt(mode: AnalysisMode): string {
+  const perspectiveMap: Record<AnalysisMode, string> = {
+    auto: "general business file analyst",
+    sales: "sales & revenue analyst",
+    expenses: "expense & cost control analyst",
+    inventory: "inventory & supply chain analyst",
+    customers: "customer relationship & retention analyst",
+  };
+
+  return `You are an expert ${perspectiveMap[mode]}. Analyze the uploaded file data below and return a JSON object with exactly these fields:
+
 {
-  "summary": "2-sentence executive summary of the file content, data quality, and key takeaway",
-  "score": 0-100 numeric score reflecting file data quality & business performance,
-  "risks": [{"title": "Risk title", "severity": "high|medium|low", "detail": "Specific detail with numbers"}],
-  "opportunities": [{"title": "Opportunity title", "impact": "high|medium|low", "detail": "Specific detail with numbers"}],
-  "recommendations": [{"title": "Action item", "priority": "urgent|high|medium|low", "description": "Specific action to take"}],
-  "warnings": ["Warning or data anomaly text"],
-  "insights": ["Key statistical observation 1", "Key statistical observation 2", "Key statistical observation 3"]
-}`;
+  "summary": "brief executive summary of what the file contains and key findings",
+  "score": <number 0-100 representing data quality / health>,
+  "insights": ["string insight 1", "string insight 2", ...],
+  "risks": [
+    { "title": "Risk name", "severity": "high|medium|low", "detail": "What the risk means" }
+  ],
+  "opportunities": [
+    { "title": "Opportunity name", "impact": "high|medium|low", "detail": "Description of opportunity" }
+  ],
+  "recommendations": [
+    { "title": "Recommendation", "description": "Actionable next step" }
+  ]
+}
 
+Return ONLY valid JSON. No markdown, no extra text.`;
+}
+
+function buildUserPrompt(file: ImportedFile, mode: AnalysisMode): string {
+  const headerSample = file.rawText.slice(0, 3000);
+
+  return `FILE NAME: ${file.fileName}
+FILE TYPE: ${file.fileType}
+ROW COUNT: ${file.rowCount}
+HEADERS: ${file.headers.join(", ")}
+NUMERIC COLUMNS: ${file.summaryStats.numericCols.join(", ") || "none"}
+CATEGORY COLUMNS: ${file.summaryStats.categoryCols.join(", ") || "none"}
+ANALYSIS PERSPECTIVE: ${mode}
+
+SAMPLE DATA (first rows):
+${headerSample}
+
+Analyze this data from a "${mode}" perspective and return the JSON result.`;
+}
+
+/* ─── Rule-based Fallback ─── */
+
+function ruleBasedFallback(file: ImportedFile, mode: AnalysisMode): FileGeminiResult {
+  const headerCount = file.headers.length;
+  const rowCount = file.rowCount;
+  const numCols = file.summaryStats.numericCols.length;
+  const insights: string[] = [];
+  const risks: FileGeminiRisk[] = [];
+  const opportunities: FileGeminiOpportunity[] = [];
+  const recommendations: FileGeminiRecommendation[] = [];
+
+  // Basic quality checks
+  if (headerCount === 0) {
+    risks.push({ title: "No Headers Detected", severity: "high", detail: "The file has no column headers. Data mapping may fail." });
+  } else {
+    insights.push(`Detected ${headerCount} columns: ${file.headers.join(", ")}`);
+  }
+
+  if (rowCount === 0) {
+    risks.push({ title: "Empty File", severity: "high", detail: "The file contains zero data rows. Nothing to analyze." });
+  } else {
+    insights.push(`File contains ${rowCount} data rows ready for analysis.`);
+  }
+
+  if (numCols === 0) {
+    insights.push("No numeric columns found — the file may contain only text or categorical data.");
+    recommendations.push({ title: "Review Data Types", description: "Consider converting numeric values from text format to enable quantitative analysis." });
+  } else {
+    const totalSum = Object.values(file.summaryStats.totalNumericSum).reduce((a, b) => a + b, 0);
+    insights.push(`${numCols} numeric column(s) detected with a combined sum of ${totalSum.toLocaleString()}.`);
+
+    if (mode !== "auto") {
+      recommendations.push({
+        title: `Analyze ${mode} data in depth`,
+        description: `Run the Executive Suite to get a full AI-powered business health report using this ${mode} file.`,
+      });
+    }
+  }
+
+  // Mode-specific heuristics
+  if (mode === "sales" || mode === "auto") {
+    const hasAmount = file.headers.some((h) => /amount|price|total|revenue|sale/i.test(h));
+    const hasDate = file.headers.some((h) => /date|time|sold/i.test(h));
+    if (!hasAmount) risks.push({ title: "Missing Revenue Column", severity: "medium", detail: "No column resembling amount/price/revenue found. Revenue analysis will be limited." });
+    if (!hasDate) risks.push({ title: "Missing Date Column", severity: "low", detail: "No date column found. Temporal trends cannot be computed." });
+  }
+
+  if (mode === "inventory" || mode === "auto") {
+    const hasQty = file.headers.some((h) => /qty|quantity|stock|count/i.test(h));
+    if (!hasQty) risks.push({ title: "Missing Quantity Column", severity: "medium", detail: "Stock level tracking requires a quantity/numeric column." });
+  }
+
+  if (mode === "customers" || mode === "auto") {
+    const hasName = file.headers.some((h) => /name|customer|client/i.test(h));
+    const hasEmail = file.headers.some((h) => /email|mail/i.test(h));
+    if (!hasName) insights.push("No customer name column identified — consider renaming a column to 'name'.");
+    if (!hasEmail) recommendations.push({ title: "Capture Emails", description: "Add an email column to enable CRM-style communications." });
+  }
+
+  // Score estimate based on data quality
+  let score = 75;
+  if (headerCount === 0) score -= 25;
+  if (rowCount === 0) score -= 40;
+  if (numCols === 0) score -= 10;
+  if (risks.length > 2) score -= 10;
+  score = Math.max(10, Math.min(100, score));
+
+  const modeLabel = mode === "auto" ? "general business" : mode;
+
+  return {
+    executionMode: "fallback",
+    summary: `Rule-based analysis of "${file.fileName}" from a ${modeLabel} perspective. ${file.rowCount} rows, ${file.headers.length} columns, ${numCols} numeric field(s). ${risks.length > 0 ? `${risks.length} potential issue(s) identified.` : "No major issues detected."}`,
+    score,
+    risks,
+    opportunities,
+    recommendations,
+    insights,
+  };
+}
+
+/* ─── Main Export ─── */
+
+/**
+ * Run Gemini AI analysis on a single uploaded file.
+ * Falls back to rule-based analysis if AI is unavailable.
+ */
 export async function runFileGeminiAnalysis(
   companyId: string,
   file: ImportedFile,
-  mode: string = "auto"
+  mode: AnalysisMode = "auto",
 ): Promise<FileGeminiResult> {
-  const sampleRows = file.parsedData ? file.parsedData.slice(0, 15) : [];
-  const numericStats = file.summaryStats
-    ? {
-        numericCols: file.summaryStats.numericCols,
-        totalNumericSum: file.summaryStats.totalNumericSum,
-        avgNumericVal: file.summaryStats.avgNumericVal,
-      }
-    : {};
-
-  const payload = {
-    fileName: file.fileName,
-    fileType: file.fileType,
-    rowCount: file.rowCount,
-    headers: file.headers,
-    perspectiveMode: mode,
-    numericStats,
-    sampleRows,
-  };
+  const systemPrompt = buildSystemPrompt(mode);
+  const userPrompt = buildUserPrompt(file, mode);
 
   try {
-    const aiResult = await callAI(companyId, {
-      systemPrompt: FILE_ANALYSIS_SYSTEM_PROMPT,
-      userPrompt: JSON.stringify(payload, null, 2),
+    const result = await callAI(companyId, {
+      systemPrompt,
+      userPrompt,
+      maxRetries: 1,
     });
 
-    if (aiResult.success && aiResult.text) {
-      const parsed = parseAIResponse<FileGeminiResult>(aiResult.text);
+    if (result.success && result.text) {
+      const parsed = parseAIResponse<FileGeminiResult>(result.text);
+
       if (parsed.data) {
         return {
-          summary: parsed.data.summary || `Gemini analysis of ${file.fileName}`,
-          score: Math.max(0, Math.min(100, Math.round(parsed.data.score || 85))),
+          executionMode: "ai",
+          modelUsed: result.model || "gemini-3.5-flash",
+          summary: parsed.data.summary || `Analysis of ${file.fileName}`,
+          score: typeof parsed.data.score === "number" ? Math.max(0, Math.min(100, parsed.data.score)) : 75,
           risks: Array.isArray(parsed.data.risks) ? parsed.data.risks : [],
           opportunities: Array.isArray(parsed.data.opportunities) ? parsed.data.opportunities : [],
           recommendations: Array.isArray(parsed.data.recommendations) ? parsed.data.recommendations : [],
-          warnings: Array.isArray(parsed.data.warnings) ? parsed.data.warnings : [],
           insights: Array.isArray(parsed.data.insights) ? parsed.data.insights : [],
-          executionMode: "ai",
-          modelUsed: aiResult.model || "Google Gemini 3.5 Flash",
         };
       }
     }
-  } catch (err) {
-    console.warn("File Gemini AI analysis error, falling back to rule-based analysis:", err);
+
+    // AI returned but couldn't parse — fall through to rule-based
+    invalidateSettingsCache();
+    return ruleBasedFallback(file, mode);
+  } catch {
+    // Network or unexpected error — safe fallback
+    return ruleBasedFallback(file, mode);
   }
-
-  // Deterministic Fallback if Gemini API unavailable or fails
-  const numCol = file.summaryStats?.numericCols?.[0];
-  const totalVal = numCol ? file.summaryStats.totalNumericSum[numCol] || 0 : 0;
-  const avgVal = numCol ? file.summaryStats.avgNumericVal[numCol] || 0 : 0;
-
-  return {
-    summary: `Analyzed ${file.rowCount} records from ${file.fileName}. Identified ${file.headers.length} data columns with key numerical metric '${numCol || "data"}' total value of ${totalVal.toLocaleString()}.`,
-    score: 82,
-    risks: [
-      {
-        title: "Potential Data Discrepancies",
-        severity: "medium",
-        detail: `Verify ${file.headers.length} headers match expected standard workspace schema before importing.`,
-      },
-    ],
-    opportunities: [
-      {
-        title: "Workspace Integration",
-        impact: "high",
-        detail: `Import these ${file.rowCount} rows directly into the database to update live dashboards.`,
-      },
-    ],
-    recommendations: [
-      {
-        title: "Review Data Mapping",
-        priority: "high",
-        description: "Click 'Import Data to Workspace' to map file attributes to database tables.",
-      },
-    ],
-    warnings: file.rowCount > 5000 ? ["File contains large dataset (>5000 rows); import in batches if needed."] : [],
-    insights: [
-      `File contains ${file.rowCount} records across ${file.headers.length} attributes.`,
-      numCol ? `Primary numeric column '${numCol}' has average value of ${avgVal.toFixed(2)}.` : "No numeric aggregate column detected.",
-      `Uploaded format: ${file.fileType.toUpperCase()}.`,
-    ],
-    executionMode: "fallback",
-    modelUsed: "Rule Engine (Fallback)",
-  };
 }
