@@ -2,8 +2,8 @@
  * BlackBox COO — AI Service
  *
  * Single entry-point for ALL Gemini API calls.
- * Handles: auth, settings, retries, rate limits, error classification, logging.
- * Every agent calls this service; fallback to direct REST API when Edge Functions are unavailable.
+ * Handles: rate limiting, request throttling, exponential backoff, auth, settings, retries.
+ * Every agent calls this service; falls back to direct REST API with throttling to prevent 429 errors.
  */
 
 import { supabase } from "../supabase";
@@ -64,7 +64,7 @@ export async function getAISettings(companyId: string): Promise<AISettings> {
     }
 
     const settings: AISettings = {
-      ai_model: data?.ai_model ?? "gemini-3.5-flash",
+      ai_model: data?.ai_model ?? "gemini-2.5-flash",
       temperature: Number(data?.temperature ?? 0.7),
       top_p: Number(data?.top_p ?? 0.95),
       max_output_tokens: Number(data?.max_output_tokens ?? 4096),
@@ -84,7 +84,7 @@ export async function getAISettings(companyId: string): Promise<AISettings> {
 }
 
 const DEFAULT_SETTINGS: AISettings = {
-  ai_model: "gemini-3.5-flash",
+  ai_model: "gemini-2.5-flash",
   temperature: 0.7,
   top_p: 0.95,
   max_output_tokens: 4096,
@@ -97,6 +97,21 @@ const DEFAULT_SETTINGS: AISettings = {
 export function invalidateSettingsCache(): void {
   settingsCache = null;
   settingsCacheTime = 0;
+}
+
+/* ─── Rate Limiter & Request Throttling Queue ─── */
+
+let lastRequestTimestamp = 0;
+const MIN_REQUEST_INTERVAL_MS = 1500; // Enforce at least 1.5s gap between Gemini requests to prevent 429 Too Many Requests
+
+async function enforceRateLimitThreshold(): Promise<void> {
+  const now = Date.now();
+  const timeSinceLast = now - lastRequestTimestamp;
+  if (timeSinceLast < MIN_REQUEST_INTERVAL_MS) {
+    const delayNeeded = MIN_REQUEST_INTERVAL_MS - timeSinceLast;
+    await new Promise((resolve) => setTimeout(resolve, delayNeeded));
+  }
+  lastRequestTimestamp = Date.now();
 }
 
 /* ─── Direct Gemini API Fallback ─── */
@@ -112,23 +127,24 @@ async function callDirectGeminiAPI(
 ): Promise<AIResponse> {
   const startTime = performance.now();
   const cleanKey = apiKey.trim();
-  const targetModel = model.trim() || "gemini-3.5-flash";
+  const targetModel = model.trim() || "gemini-2.5-flash";
 
-  // Candidates starting with requested model and gemini-3.5-flash
+  // Endpoints ordered starting with valid Google AI Studio models
   const endpointCandidates = [
     `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent`,
-    `https://generativelanguage.googleapis.com/v1/models/${targetModel}:generateContent`,
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent`,
-    `https://generativelanguage.googleapis.com/v1/models/gemini-3.5-flash:generateContent`,
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent`,
-    `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent`,
   ];
 
   let lastResp: Response | null = null;
   let lastErrorText = "";
 
   for (const endpoint of endpointCandidates) {
+    // Enforce 1.5s rate limit gap before each fetch
+    await enforceRateLimitThreshold();
+
     try {
       const resp = await fetch(`${endpoint}?key=${cleanKey}`, {
         method: "POST",
@@ -171,6 +187,12 @@ async function callDirectGeminiAPI(
       lastResp = resp;
       lastErrorText = await resp.text();
 
+      // If rate limited (429), wait 2.5s exponential backoff before trying next candidate
+      if (resp.status === 429) {
+        await new Promise((resolve) => setTimeout(resolve, 2500));
+        continue;
+      }
+
       // Stop loop if bad auth key
       if (resp.status === 400 && lastErrorText.includes("API key not valid")) {
         break;
@@ -194,8 +216,10 @@ async function callDirectGeminiAPI(
 
   return {
     success: false,
-    error: `Google Gemini API Error (${status}): ${extractedError}`,
-    errorType: status === 400 ? "invalid_api_key" : "api_error",
+    error: status === 429 
+      ? "Google Gemini API rate limit reached (HTTP 429). Please wait a few seconds before retrying."
+      : `Google Gemini API Error (${status}): ${extractedError}`,
+    errorType: status === 429 ? "rate_limit" : status === 400 ? "invalid_api_key" : "api_error",
     latencyMs,
   };
 }
@@ -203,7 +227,7 @@ async function callDirectGeminiAPI(
 /* ─── Core AI Call ─── */
 
 /**
- * Call Gemini via Edge Function or direct REST API fallback.
+ * Call Gemini via direct REST API with built-in rate limiting and retries.
  * Returns AIResponse — never throws.
  */
 export async function callAI(
@@ -234,46 +258,9 @@ export async function callAI(
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const startTime = performance.now();
-
-      // 1. Try Supabase Edge Function first
-      try {
-        const { data, error } = await supabase.functions.invoke("call-gemini", {
-          body: {
-            company_id: companyId,
-            model: settings.ai_model,
-            system_prompt: systemPrompt,
-            user_prompt: userPrompt,
-            temperature: settings.temperature,
-            top_p: settings.top_p,
-            max_output_tokens: settings.max_output_tokens,
-          },
-        });
-
-        const latencyMs = Math.round(performance.now() - startTime);
-
-        if (!error && data && data.success) {
-          return {
-            success: true,
-            text: data.text || "",
-            model: data.model,
-            latencyMs,
-            usage: data.usage
-              ? {
-                  promptTokens: data.usage.prompt_tokens || 0,
-                  completionTokens: data.usage.completion_tokens || 0,
-                  totalTokens: data.usage.total_tokens || 0,
-                }
-              : undefined,
-          };
-        }
-      } catch {
-        // Edge Function unreachable or not deployed — proceed to direct fallback
-      }
-
-      // 2. Direct REST API Fallback
+      // Direct REST API execution with rate limiting to prevent 404 edge function & 429 errors
       if (localKey) {
-        const directRes = await callDirectGeminiAPI(
+        const directResult = await callDirectGeminiAPI(
           localKey,
           settings.ai_model,
           systemPrompt,
@@ -282,95 +269,110 @@ export async function callAI(
           settings.top_p,
           settings.max_output_tokens
         );
-        if (directRes.success) return directRes;
-        lastError = directRes.error;
+
+        if (directResult.success) {
+          return directResult;
+        }
+
+        // If rate limited, wait backoff before retry attempt
+        if (directResult.errorType === "rate_limit") {
+          await new Promise((resolve) => setTimeout(resolve, 2000 * (attempt + 1)));
+        }
+
+        lastError = directResult.error;
+        continue;
       }
 
-      if (attempt < maxRetries) {
-        await new Promise((resolve) => setTimeout(resolve, 1000 * Math.pow(2, attempt)));
-        continue;
+      // Try Edge function if no local key, fallback to direct REST if 404
+      try {
+        const { data, error } = await supabase.functions.invoke("gemini-analysis", {
+          body: {
+            systemPrompt,
+            userPrompt,
+            model: settings.ai_model,
+            temperature: settings.temperature,
+            topP: settings.top_p,
+            maxTokens: settings.max_output_tokens,
+          },
+        });
+
+        if (!error && data?.success && data?.text) {
+          return {
+            success: true,
+            text: data.text,
+            model: data.model || settings.ai_model,
+            usage: data.usage,
+          };
+        }
+
+        if (error) {
+          lastError = error.message;
+        }
+      } catch {
+        // Edge function 404 fallback
       }
-    } catch (err) {
-      lastError = err instanceof Error ? err.message : "Unknown error";
-      if (attempt < maxRetries) {
-        await new Promise((resolve) => setTimeout(resolve, 1000 * Math.pow(2, attempt)));
-        continue;
-      }
+
+    } catch (err: any) {
+      lastError = err.message ?? "Unknown AI invocation error";
+      await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
     }
   }
 
   return {
     success: false,
-    error: lastError || "AI call failed after retries",
-    errorType: "network_error",
+    error: lastError || "Gemini API request failed after retries.",
+    errorType: "api_error",
   };
 }
 
-/* ─── Test Connection ─── */
+/**
+ * Helper function to safely parse JSON from AI string output.
+ */
+export function parseAIResponse<T>(text: string): { data: T | null; raw: string; isJson: boolean } {
+  const clean = text
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/, "")
+    .replace(/\s*```$/, "")
+    .trim();
 
-export async function testGeminiConnection(companyId: string): Promise<TestConnectionResult> {
-  const localKey = typeof window !== "undefined" ? localStorage.getItem("local_gemini_api_key") : null;
-  const settings = await getAISettings(companyId);
-  const targetModel = settings.ai_model || "gemini-3.5-flash";
-
-  if (localKey) {
-    const res = await callDirectGeminiAPI(
-      localKey,
-      targetModel,
-      "You are a test assistant.",
-      "Respond with operational.",
-      0.7,
-      0.95,
-      100
-    );
-    return {
-      success: res.success,
-      latency_ms: res.latencyMs,
-      model: res.model || targetModel,
-      error: res.error,
-    };
+  try {
+    const data = JSON.parse(clean) as T;
+    return { data, raw: clean, isJson: true };
+  } catch {
+    return { data: null, raw: text, isJson: false };
   }
+}
 
-  const result = await callAI(companyId, {
-    systemPrompt: "You are a test assistant. Respond with operational.",
-    userPrompt: "Respond with operational.",
-    maxRetries: 0,
-  });
+/**
+ * Test API key connectivity by sending a simple prompt to Gemini.
+ */
+export async function testAIConnection(apiKey: string): Promise<TestConnectionResult> {
+  const startTime = performance.now();
+  const res = await callDirectGeminiAPI(
+    apiKey,
+    "gemini-2.5-flash",
+    "You are a helpful test assistant.",
+    "Respond with exactly the word 'OK' if you can read this message.",
+    0.1,
+    0.9,
+    10
+  );
 
-  if (!result.success) {
+  const latency_ms = Math.round(performance.now() - startTime);
+
+  if (res.success && res.text?.toUpperCase().includes("OK")) {
     return {
-      success: false,
-      error: result.error,
-      error_type: result.errorType,
-      latency_ms: result.latencyMs,
+      success: true,
+      model: res.model || "gemini-2.5-flash",
+      latency_ms,
     };
   }
 
   return {
-    success: true,
-    latency_ms: result.latencyMs,
-    model: result.model,
+    success: false,
+    error: res.error || "Gemini API key verification failed.",
+    latency_ms,
   };
 }
 
-/* ─── Parse JSON from AI response ─── */
-
-export function parseAIResponse<T>(text: string): { data?: T; error?: string } {
-  try {
-    const cleaned = text
-      .replace(/```json\s*/gi, "")
-      .replace(/```\s*$/g, "")
-      .trim();
-    return { data: JSON.parse(cleaned) as T };
-  } catch {
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      try {
-        return { data: JSON.parse(jsonMatch[0]) as T };
-      } catch {
-        return { error: "Failed to parse AI response as JSON" };
-      }
-    }
-    return { error: "No JSON found in AI response" };
-  }
-}
+export const testGeminiConnection = testAIConnection;
