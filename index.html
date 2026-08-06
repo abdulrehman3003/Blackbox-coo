@@ -12,6 +12,23 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // Suppress known non-critical console errors from the platform's
+      // html-to-image thumbnail capture (cross-origin stylesheet cssRules).
+      (function() {
+        const orig = console.error;
+        console.error = function() {
+          var msg = Array.prototype.join.call(arguments, ' ');
+          if (
+            msg.includes('html-to-image') ||
+            msg.includes('Failed to read') ||
+            msg.includes("Cannot access rules") ||
+            msg.includes('Error loading remote stylesheet')
+          ) return;
+          return orig.apply(this, arguments);
+        };
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

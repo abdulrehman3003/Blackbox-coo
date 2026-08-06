@@ -143,22 +143,34 @@ interface Props {
 }
 
 export default function ExecutiveReportView({ report, onClose }: Props) {
-  const hasData = report.businessScore > 0;
+  // Defensive defaults for partial reports (e.g. loaded from ai_reports table)
+  const r = {
+    ...report,
+    revenueSummary: report.revenueSummary ?? [],
+    expenseSummary: report.expenseSummary ?? [],
+    salesAnalysis: report.salesAnalysis ?? { topCustomers: [], atRiskCustomers: [], upsellRecommendations: [], totalSales: 0, salesGrowth: 0 },
+    inventoryHealth: report.inventoryHealth ?? { lowStock: [], shortages: [], totalItems: 0, stockHealth: 0 },
+    marketingRecommendations: report.marketingRecommendations ?? { recommendations: [], promotionIdeas: [], campaignSuggestions: [] },
+    topRisks: report.topRisks ?? [],
+    topOpportunities: report.topOpportunities ?? [],
+    priorityTasks: report.priorityTasks ?? [],
+  };
+  const hasData = r.businessScore > 0;
 
   return (
     <div className="space-y-8 pb-12">
 
       {/* ── Header / Score ── */}
       <div className="flex flex-col sm:flex-row items-center gap-6 p-6 rounded-2xl bg-gradient-to-br from-surface/60 to-surface/30 border border-card-border">
-        <ScoreCircle score={report.businessScore} />
+        <ScoreCircle score={r.businessScore} />
         <div className="text-center sm:text-left">
           <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2 justify-center sm:justify-start">
             <Target size={20} className="text-accent" />
             Business Health Summary
           </h2>
-          <p className="text-sm text-text-muted mt-2 max-w-xl leading-relaxed">{report.summary}</p>
+          <p className="text-sm text-text-muted mt-2 max-w-xl leading-relaxed">{r.summary}</p>
           <p className="text-xs text-text-muted/50 mt-3">
-            Period: {report.periodStart} – {report.periodEnd}
+            Period: {r.periodStart} – {r.periodEnd}
           </p>
         </div>
 
@@ -188,7 +200,7 @@ export default function ExecutiveReportView({ report, onClose }: Props) {
             </h3>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={report.revenueSummary}>
+                <AreaChart data={r.revenueSummary}>
                   <defs>
                     <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor={COLORS.revenue} stopOpacity={0.3} />
@@ -209,25 +221,25 @@ export default function ExecutiveReportView({ report, onClose }: Props) {
             <StatCard
               icon={<DollarSign size={18} />}
               label="Total Revenue"
-              value={`$${report.revenueSummary.reduce((a, b) => a + b.total, 0).toLocaleString()}`}
+              value={`$${r.revenueSummary.reduce((a, b) => a + b.total, 0).toLocaleString()}`}
               iconColor="text-accent"
             />
             <StatCard
               icon={<DollarSign size={18} />}
               label="Total Expenses"
-              value={`$${report.expenseSummary.reduce((a, b) => a + b.total, 0).toLocaleString()}`}
+              value={`$${r.expenseSummary.reduce((a, b) => a + b.total, 0).toLocaleString()}`}
               iconColor="text-danger"
             />
             <StatCard
-              icon={report.salesAnalysis.salesGrowth >= 0 ? <TrendingUp size={18} /> : <TrendingDown size={18} />}
+              icon={r.salesAnalysis.salesGrowth >= 0 ? <TrendingUp size={18} /> : <TrendingDown size={18} />}
               label="Sales Growth"
-              value={`${report.salesAnalysis.salesGrowth >= 0 ? "+" : ""}${report.salesAnalysis.salesGrowth.toFixed(1)}%`}
-              iconColor={report.salesAnalysis.salesGrowth >= 0 ? "text-accent" : "text-danger"}
+              value={`${r.salesAnalysis.salesGrowth >= 0 ? "+" : ""}${r.salesAnalysis.salesGrowth.toFixed(1)}%`}
+              iconColor={r.salesAnalysis.salesGrowth >= 0 ? "text-accent" : "text-danger"}
             />
             <StatCard
               icon={<Package size={18} />}
               label="Stock Health"
-              value={`${report.inventoryHealth.stockHealth}%`}
+              value={`${r.inventoryHealth.stockHealth}%`}
               iconColor="text-primary"
             />
           </div>
@@ -244,12 +256,12 @@ export default function ExecutiveReportView({ report, onClose }: Props) {
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
-                      data={report.expenseSummary.slice(0, 5)}
+                      data={r.expenseSummary.slice(0, 5)}
                       cx="50%" cy="50%" innerRadius={50} outerRadius={80}
                       dataKey="total" nameKey="category"
                       paddingAngle={3}
                     >
-                      {report.expenseSummary.slice(0, 5).map((_, i) => (
+                      {r.expenseSummary.slice(0, 5).map((_, i) => (
                         <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
                       ))}
                     </Pie>
@@ -258,7 +270,7 @@ export default function ExecutiveReportView({ report, onClose }: Props) {
                 </ResponsiveContainer>
               </div>
               <div className="flex flex-wrap gap-3 mt-2">
-                {report.expenseSummary.slice(0, 5).map((e, i) => (
+                {r.expenseSummary.slice(0, 5).map((e, i) => (
                   <div key={i} className="flex items-center gap-1.5 text-xs">
                     <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }} />
                     <span className="text-text-muted">{e.category}</span>
@@ -273,9 +285,9 @@ export default function ExecutiveReportView({ report, onClose }: Props) {
                 <Users size={16} className="text-primary" />
                 Top Customers
               </h3>
-              {report.salesAnalysis.topCustomers.length > 0 ? (
+              {r.salesAnalysis.topCustomers.length > 0 ? (
                 <div className="space-y-3">
-                  {report.salesAnalysis.topCustomers.slice(0, 5).map((c, i) => (
+                  {r.salesAnalysis.topCustomers.slice(0, 5).map((c, i) => (
                     <div key={i} className="flex items-center justify-between py-2 border-b border-card-border last:border-0">
                       <div className="flex items-center gap-3">
                         <div className="w-7 h-7 rounded-lg bg-accent-subtle flex items-center justify-center text-xs font-semibold text-accent">
@@ -301,11 +313,11 @@ export default function ExecutiveReportView({ report, onClose }: Props) {
             <div>
               <h3 className="text-sm font-semibold text-text-primary mb-3 flex items-center gap-2">
                 <AlertTriangle size={16} className="text-danger" />
-                Risks ({report.topRisks.length})
+                Risks ({r.topRisks.length})
               </h3>
               <div className="space-y-2">
-                {report.topRisks.length > 0
-                  ? report.topRisks.map((r, i) => <RiskCard key={i} risk={r} />)
+                {r.topRisks.length > 0
+                  ? r.topRisks.map((risk, i) => <RiskCard key={i} risk={risk} />)
                   : <p className="text-xs text-text-muted p-3">No significant risks detected.</p>
                 }
               </div>
@@ -313,11 +325,11 @@ export default function ExecutiveReportView({ report, onClose }: Props) {
             <div>
               <h3 className="text-sm font-semibold text-text-primary mb-3 flex items-center gap-2">
                 <Lightbulb size={16} className="text-accent" />
-                Opportunities ({report.topOpportunities.length})
+                Opportunities ({r.topOpportunities.length})
               </h3>
               <div className="space-y-2">
-                {report.topOpportunities.length > 0
-                  ? report.topOpportunities.map((o, i) => <OpportunityCard key={i} opp={o} />)
+                {r.topOpportunities.length > 0
+                  ? r.topOpportunities.map((o, i) => <OpportunityCard key={i} opp={o} />)
                   : <p className="text-xs text-text-muted p-3">No opportunities identified yet.</p>
                 }
               </div>
@@ -330,9 +342,9 @@ export default function ExecutiveReportView({ report, onClose }: Props) {
               <ClipboardList size={16} className="text-accent" />
               Priority Tasks
             </h3>
-            {report.priorityTasks.length > 0 ? (
+            {r.priorityTasks.length > 0 ? (
               <div className="space-y-2">
-                {report.priorityTasks.map((t, i) => <TaskItem key={i} task={t} i={i} />)}
+                {r.priorityTasks.map((t, i) => <TaskItem key={i} task={t} i={i} />)}
               </div>
             ) : (
               <p className="text-xs text-text-muted text-center py-6">No action items right now.</p>
@@ -346,9 +358,9 @@ export default function ExecutiveReportView({ report, onClose }: Props) {
                 <Users size={16} className="text-warning" />
                 At-Risk Customers
               </h3>
-              {report.salesAnalysis.atRiskCustomers.length > 0 ? (
+              {r.salesAnalysis.atRiskCustomers.length > 0 ? (
                 <div className="space-y-2">
-                  {report.salesAnalysis.atRiskCustomers.slice(0, 5).map((c, i) => (
+                  {r.salesAnalysis.atRiskCustomers.slice(0, 5).map((c, i) => (
                     <div key={i} className="flex items-center justify-between p-3 rounded-xl bg-surface">
                       <span className="text-sm text-text-primary">{c.name}</span>
                       <span className="text-xs text-text-muted">{c.daysSinceLastVisit} days ago</span>
@@ -365,9 +377,9 @@ export default function ExecutiveReportView({ report, onClose }: Props) {
                 <Package size={16} className="text-warning" />
                 Low Stock Items
               </h3>
-              {report.inventoryHealth.lowStock.length > 0 ? (
+              {r.inventoryHealth.lowStock.length > 0 ? (
                 <div className="space-y-2">
-                  {report.inventoryHealth.lowStock.slice(0, 5).map((item, i) => (
+                  {r.inventoryHealth.lowStock.slice(0, 5).map((item, i) => (
                     <div key={i} className="flex items-center justify-between p-3 rounded-xl bg-surface">
                       <div>
                         <span className="text-sm text-text-primary">{item.name}</span>
@@ -395,10 +407,10 @@ export default function ExecutiveReportView({ report, onClose }: Props) {
               <div>
                 <h4 className="text-xs font-medium uppercase tracking-wider text-text-muted mb-2">Marketing</h4>
                 <ul className="space-y-1">
-                  {report.marketingRecommendations.recommendations.map((r, i) => (
+                  {r.marketingRecommendations.recommendations.map((rec, i) => (
                     <li key={i} className="text-sm text-text-primary flex items-start gap-2">
                       <span className="w-1.5 h-1.5 rounded-full bg-accent mt-1.5 shrink-0" />
-                      {r}
+                      {rec}
                     </li>
                   ))}
                 </ul>
@@ -406,10 +418,10 @@ export default function ExecutiveReportView({ report, onClose }: Props) {
               <div>
                 <h4 className="text-xs font-medium uppercase tracking-wider text-text-muted mb-2">Promotions</h4>
                 <ul className="space-y-1">
-                  {report.marketingRecommendations.promotionIdeas.map((r, i) => (
+                  {r.marketingRecommendations.promotionIdeas.map((idea, i) => (
                     <li key={i} className="text-sm text-text-primary flex items-start gap-2">
                       <span className="w-1.5 h-1.5 rounded-full bg-primary mt-1.5 shrink-0" />
-                      {r}
+                      {idea}
                     </li>
                   ))}
                 </ul>
@@ -417,10 +429,10 @@ export default function ExecutiveReportView({ report, onClose }: Props) {
               <div>
                 <h4 className="text-xs font-medium uppercase tracking-wider text-text-muted mb-2">Campaigns</h4>
                 <ul className="space-y-1">
-                  {report.marketingRecommendations.campaignSuggestions.map((r, i) => (
+                  {r.marketingRecommendations.campaignSuggestions.map((suggestion, i) => (
                     <li key={i} className="text-sm text-text-primary flex items-start gap-2">
                       <span className="w-1.5 h-1.5 rounded-full bg-warning mt-1.5 shrink-0" />
-                      {r}
+                      {suggestion}
                     </li>
                   ))}
                 </ul>
