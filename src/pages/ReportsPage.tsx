@@ -5,7 +5,8 @@ import { useAuth } from "../hooks/useAuth";
 import PageHeader from "../components/ui/PageHeader";
 import Button from "../components/ui/Button";
 import ExecutiveReportView from "../components/reports/ExecutiveReportView";
-import { useAnalysisRunner } from "../components/analysis";
+import { AnalysisRunner, useAnalysisRunner } from "../components/analysis";
+import { getLocalReports } from "../components/analysis/useAnalysisRunner";
 
 interface SavedReport {
   id: string;
@@ -18,30 +19,59 @@ interface SavedReport {
 export default function ReportsPage() {
   const { profile } = useAuth();
   const companyId = profile?.company_id ?? "";
-  const { running, error, run } = useAnalysisRunner(companyId);
+
   const [reports, setReports] = useState<SavedReport[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<SavedReport | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
 
   const loadReports = useCallback(async () => {
-    if (!companyId) return;
-    const { data } = await supabase
-      .from("reports")
-      .select("id, title, created_at, summary")
-      .eq("company_id", companyId)
-      .order("created_at", { ascending: false });
-    setReports((data ?? []) as SavedReport[]);
+    let dbReports: SavedReport[] = [];
+    if (companyId) {
+      const { data } = await supabase
+        .from("reports")
+        .select("id, title, created_at, summary")
+        .eq("company_id", companyId)
+        .order("created_at", { ascending: false });
+      dbReports = (data ?? []) as SavedReport[];
+    }
+
+    const local = getLocalReports(companyId) as SavedReport[];
+    
+    // Combine DB reports and local reports (deduplicate by id or title timestamp)
+    const combinedMap = new Map<string, SavedReport>();
+    [...dbReports, ...local].forEach((r) => {
+      if (!combinedMap.has(r.id)) {
+        combinedMap.set(r.id, r);
+      }
+    });
+
+    const combined = Array.from(combinedMap.values()).sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+
+    setReports(combined);
     setLoading(false);
   }, [companyId]);
 
+  const { steps, running, error, report, progress, run, clearReport } = useAnalysisRunner(companyId, loadReports);
+
   useEffect(() => {
-    if (companyId) loadReports();
+    loadReports();
   }, [companyId, loadReports]);
 
   const onDelete = async (id: string) => {
     setDeleting(id);
-    await supabase.from("reports").delete().eq("id", id);
+    if (companyId) {
+      await supabase.from("reports").delete().eq("id", id);
+    }
+    // Also remove from local storage
+    try {
+      const local = getLocalReports(companyId).filter((r: any) => r.id !== id);
+      localStorage.setItem(`local_reports_${companyId || "default"}`, JSON.stringify(local));
+    } catch {
+      // ignore
+    }
     setDeleting(null);
     await loadReports();
   };
@@ -78,14 +108,44 @@ export default function ReportsPage() {
         }
       />
 
+      {/* ── Live Analysis Runner Modal Overlay ── */}
+      {running && (
+        <AnalysisRunner
+          steps={steps}
+          progress={progress}
+          running={running}
+          error={error}
+          onClose={() => {
+            clearReport();
+            loadReports();
+          }}
+        />
+      )}
+
       {error && (
         <div className="glass-card p-4 border border-danger/30 bg-danger/5 text-danger text-sm">
           {error}
         </div>
       )}
 
-      {/* Latest report preview */}
-      {latest && (
+      {/* Fresh generated report preview */}
+      {report && (
+        <section className="glass-card p-5 border border-accent/30 bg-accent-subtle/20 animate-slide-up">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
+              <Sparkles size={16} className="text-accent" />
+              Newly Generated Report
+            </h3>
+            <Button variant="ghost" size="sm" onClick={clearReport}>
+              Dismiss
+            </Button>
+          </div>
+          <ExecutiveReportView report={report} onClose={clearReport} />
+        </section>
+      )}
+
+      {/* Latest saved report preview */}
+      {!report && latest && (
         <section className="glass-card p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
@@ -107,7 +167,7 @@ export default function ReportsPage() {
       <section className="glass-card p-5">
         <h3 className="text-sm font-semibold text-text-primary mb-4 flex items-center gap-2">
           <FileText size={16} className="text-accent" />
-          Report History
+          Report History ({reports.length})
         </h3>
 
         {loading ? (
