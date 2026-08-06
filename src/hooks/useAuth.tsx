@@ -72,6 +72,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         role: p.role,
         company_id: p.company_id,
         avatar_url: p.avatar_url,
+        phone: p.phone,
+        bio: p.bio,
+        job_role: p.job_role,
       });
       setCompany(p.companies ?? null);
       setOnboardingRequired(!p.company_id);

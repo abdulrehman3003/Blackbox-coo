@@ -19,8 +19,6 @@ import {
   AlertTriangle,
   Shield,
   Clock,
-  ChevronRight,
-  ExternalLink,
 } from "lucide-react";
 import Button from "../components/ui/Button";
 import GlassCard from "../components/ui/GlassCard";
@@ -98,7 +96,6 @@ export default function ProfilePage() {
   const [size, setSize] = useState("");
 
   // Security
-  const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
@@ -255,7 +252,6 @@ export default function ProfilePage() {
       const { error } = await updatePassword(newPassword);
       if (error) throw error;
       setSaved("Password updated!");
-      setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
       setTimeout(() => setSaved(null), 3000);
