@@ -16,17 +16,57 @@
       // Suppress known non-critical console errors from the platform's
       // html-to-image thumbnail capture (cross-origin stylesheet cssRules).
       (function() {
-        const orig = console.error;
+        function isSuppressedError(msg) {
+          return (
+            (typeof msg === 'string' && (
+              msg.includes('html-to-image') ||
+              msg.includes('Failed to read') ||
+              msg.includes('Cannot access rules') ||
+              msg.includes('Error loading remote stylesheet')
+            )) ||
+            (msg && msg.name === 'SecurityError' && (
+              (msg.message || '').includes('cssRules') ||
+              (msg.message || '').includes('Cannot access rules')
+            ))
+          );
+        }
+
+        // Suppress via console.error
+        var origError = console.error;
         console.error = function() {
-          var msg = Array.prototype.join.call(arguments, ' ');
-          if (
-            msg.includes('html-to-image') ||
-            msg.includes('Failed to read') ||
-            msg.includes("Cannot access rules") ||
-            msg.includes('Error loading remote stylesheet')
-          ) return;
-          return orig.apply(this, arguments);
+          for (var i = 0; i < arguments.length; i++) {
+            if (isSuppressedError(arguments[i])) return;
+          }
+          return origError.apply(this, arguments);
         };
+
+        // Also suppress via window.onerror
+        window.addEventListener('error', function(e) {
+          if (e.message && isSuppressedError(e.message)) {
+            e.stopImmediatePropagation();
+            e.preventDefault();
+            return;
+          }
+          if (e.error && isSuppressedError(e.error)) {
+            e.stopImmediatePropagation();
+            e.preventDefault();
+            return;
+          }
+        }, true);
+
+        // Suppress unhandled rejections too
+        window.addEventListener('unhandledrejection', function(e) {
+          if (e.reason && isSuppressedError(e.reason)) {
+            e.stopImmediatePropagation();
+            e.preventDefault();
+            return;
+          }
+          if (e.reason && e.reason.message && isSuppressedError(e.reason.message)) {
+            e.stopImmediatePropagation();
+            e.preventDefault();
+            return;
+          }
+        }, true);
       })();
     </script>
     <script type="module" src="/src/main.tsx"></script>
