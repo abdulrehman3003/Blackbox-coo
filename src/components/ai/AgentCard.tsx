@@ -47,7 +47,7 @@ export default function AgentCard({
   const statusIcon = () => {
     switch (status) {
       case "idle":
-        return <div className="w-2 h-2 rounded-full bg-text-muted" />;
+        return <span className="block w-2 h-2 rounded-full bg-text-muted" />;
       case "thinking":
       case "running":
         return <RefreshCw size={14} className="animate-spin text-accent" />;
