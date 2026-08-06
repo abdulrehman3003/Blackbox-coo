@@ -17,7 +17,7 @@ import {
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
 import { useAnalysisRunner, getLocalReports } from "../components/analysis/useAnalysisRunner";
-import ExecutiveReportView from "../components/reports/ExecutiveReportView";
+import ExecutiveReportView, { createFallbackExecutiveReport } from "../components/reports/ExecutiveReportView";
 import Button from "../components/ui/Button";
 
 export interface SavedReport {
@@ -42,6 +42,58 @@ function formatReportDate(dateVal: any): string {
   } catch {
     return new Date().toLocaleDateString();
   }
+}
+
+/**
+ * Reconstructs a full ExecutiveReport object from database columns if summary is a string
+ */
+function buildExecutiveReportFromDbRow(r: any): any {
+  if (!r) return createFallbackExecutiveReport();
+
+  // If summary is already an object with revenue/score details
+  if (typeof r.summary === "object" && r.summary !== null && (r.summary.revenueSummary || r.summary.businessScore)) {
+    return r.summary;
+  }
+
+  const fin = r.finance_result || {};
+  const sal = r.sales_result || {};
+  const inv = r.inventory_result || {};
+  const mkt = r.marketing_result || {};
+  const ceo = r.ceo_result || {};
+
+  const fallback = createFallbackExecutiveReport(typeof r.summary === "string" ? r.summary : undefined);
+
+  return {
+    businessScore: r.ceo_score ?? r.business_health_score ?? r.health_score ?? fallback.businessScore,
+    summary: typeof r.summary === "string" ? r.summary : ceo.summary || fallback.summary,
+    topRisks: ceo.risks || fallback.topRisks,
+    topOpportunities: ceo.opportunities || fallback.topOpportunities,
+    priorityTasks: ceo.recommendations?.map((rec: any) => typeof rec === "string" ? { title: rec, priority: "high", category: "Action" } : rec) || fallback.priorityTasks,
+    revenueSummary: fin.revenueSummary || fin.revenueTrend || fallback.revenueSummary,
+    expenseSummary: fin.expenseSummary || fin.topExpenseCategories || fallback.expenseSummary,
+    salesAnalysis: {
+      topCustomers: sal.topCustomers || fallback.salesAnalysis.topCustomers,
+      atRiskCustomers: sal.atRiskCustomers || fallback.salesAnalysis.atRiskCustomers,
+      upsellRecommendations: sal.upsellRecommendations || sal.recommendations || fallback.salesAnalysis.upsellRecommendations,
+      totalSales: sal.totalSales ?? fallback.salesAnalysis.totalSales,
+      salesGrowth: sal.salesGrowth ?? fallback.salesAnalysis.salesGrowth,
+    },
+    inventoryHealth: {
+      lowStock: inv.lowStock || fallback.inventoryHealth.lowStock,
+      shortages: inv.shortages || fallback.inventoryHealth.shortages,
+      totalItems: inv.totalItems ?? fallback.inventoryHealth.totalItems,
+      stockHealth: inv.stockHealth ?? fallback.inventoryHealth.stockHealth,
+    },
+    marketingRecommendations: {
+      recommendations: mkt.recommendations || fallback.marketingRecommendations.recommendations,
+      promotionIdeas: mkt.promotionIdeas || mkt.promotions || fallback.marketingRecommendations.promotionIdeas,
+      campaignSuggestions: mkt.campaignSuggestions || mkt.campaigns || fallback.marketingRecommendations.campaignSuggestions,
+    },
+    warnings: r.warnings || fallback.warnings,
+    generatedAt: r.created_at || new Date().toISOString(),
+    periodStart: new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+    periodEnd: new Date().toISOString().slice(0, 10),
+  };
 }
 
 export default function ReportsPage() {
@@ -79,8 +131,8 @@ export default function ReportsPage() {
             created_at: r.created_at || new Date().toISOString(),
             title: r.title || `Executive COO Analysis — ${formatReportDate(r.created_at)}`,
             type: "ai",
-            health_score: r.summary?.businessScore ?? r.summary?.score ?? r.health_score ?? 85,
-            summary: r.summary,
+            health_score: r.ceo_score ?? r.business_health_score ?? r.health_score ?? 85,
+            summary: buildExecutiveReportFromDbRow(r),
             execution_mode: r.execution_mode ?? "ai",
             total_execution_time_ms: r.total_execution_time_ms ?? 0,
           }));
@@ -90,7 +142,11 @@ export default function ReportsPage() {
       // non-fatal
     }
 
-    const local = getLocalReports(companyId) as SavedReport[];
+    const local = (getLocalReports(companyId) as any[]).map((r) => ({
+      ...r,
+      summary: buildExecutiveReportFromDbRow(r),
+    }));
+
     const map = new Map<string, SavedReport>();
     [...dbReports, ...local].forEach((r) => {
       if (r && r.id && !map.has(r.id)) map.set(r.id, r);

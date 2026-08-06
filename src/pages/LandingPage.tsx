@@ -8,8 +8,7 @@ import {
   HelpCircle, Layers, MessageSquareText,
   Bot, Activity,
 } from "lucide-react";
-import { SiX, SiGithub } from "react-icons/si";
-import { FaLinkedin } from "react-icons/fa6";
+import { Globe, Share2, Code2 } from "lucide-react";
 import Button from "../components/ui/Button";
 
 // ─── Data ──────────────────────────────────────────────────────────────────────
@@ -683,18 +682,18 @@ export default function LandingPage() {
               <div className="flex items-center gap-3 mt-5">
                 <button onClick={() => window.open("https://x.com", "_blank")}
                   className="w-8 h-8 rounded-lg bg-surface border border-border flex items-center justify-center text-text-secondary hover:text-accent hover:border-accent/30 transition-all cursor-pointer"
-                  aria-label="X (Twitter)">
-                  <SiX size={14} />
+                  aria-label="Website">
+                  <Globe size={14} />
                 </button>
                 <button onClick={() => window.open("https://github.com", "_blank")}
                   className="w-8 h-8 rounded-lg bg-surface border border-border flex items-center justify-center text-text-secondary hover:text-accent hover:border-accent/30 transition-all cursor-pointer"
-                  aria-label="GitHub">
-                  <SiGithub size={14} />
+                  aria-label="Code">
+                  <Code2 size={14} />
                 </button>
                 <button onClick={() => window.open("https://linkedin.com", "_blank")}
                   className="w-8 h-8 rounded-lg bg-surface border border-border flex items-center justify-center text-text-secondary hover:text-accent hover:border-accent/30 transition-all cursor-pointer"
-                  aria-label="LinkedIn">
-                  <FaLinkedin size={14} />
+                  aria-label="Share">
+                  <Share2 size={14} />
                 </button>
               </div>
             </div>

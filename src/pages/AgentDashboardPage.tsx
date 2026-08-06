@@ -476,7 +476,7 @@ export default function AgentDashboardPage() {
                       <PieChartIcon size={14} className="text-accent" /> Expense Breakdown
                     </h4>
                     <div className="space-y-2">
-                      {financeMetrics.topExpenseCategories.map((cat, idx) => {
+                      {financeMetrics.topExpenseCategories.map((cat: any, idx: number) => {
                         const pct = financeMetrics.expenses > 0 ? (cat.amount / financeMetrics.expenses) * 100 : 0;
                         return (
                           <div key={idx} className="space-y-1">
@@ -528,7 +528,7 @@ export default function AgentDashboardPage() {
                   <div className="glass-card p-5 space-y-3">
                     <h4 className="text-xs font-semibold text-text-primary uppercase tracking-wider">Top Customers</h4>
                     <div className="divide-y divide-border">
-                      {salesMetrics.topCustomers.map((c, idx) => (
+                      {salesMetrics.topCustomers.map((c: any, idx: number) => (
                         <div key={idx} className="py-2 flex items-center justify-between text-xs">
                           <span className="font-semibold text-text-primary">{c.name}</span>
                           <span className="text-text-secondary">${c.totalSpent.toLocaleString()} ({c.visits} visits)</span>
@@ -573,7 +573,7 @@ export default function AgentDashboardPage() {
                       <AlertCircle size={14} /> Low Stock & Reorder Alerts
                     </h4>
                     <div className="divide-y divide-border">
-                      {inventoryMetrics.lowStockItems.map((item, idx) => (
+                      {inventoryMetrics.lowStockItems.map((item: any, idx: number) => (
                         <div key={idx} className="py-2 flex items-center justify-between text-xs">
                           <span className="font-semibold text-text-primary">{item.name}</span>
                           <span className="text-warning">Stock: {item.quantity} (Reorder level: {item.reorderLevel}) — Suggest: +{item.suggestedReorder}</span>

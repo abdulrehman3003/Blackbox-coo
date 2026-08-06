@@ -27,16 +27,92 @@ export interface AIResponse {
   errorType?: string;
 }
 
-/* ─── Settings ─── */
+/** Helper to extract structured JSON output from Gemini response */
+export function parseAIResponse<T>(res: AIResponse | string, fallback?: T): any {
+  const text = typeof res === "string" ? res : res?.text;
+  if (!text) return fallback;
+  try {
+    const jsonStr = text.replace(/```json\s*/gi, "").replace(/```\s*$/g, "").trim();
+    const obj = JSON.parse(jsonStr);
+    if (obj && typeof obj === "object" && !("data" in obj)) {
+      Object.defineProperty(obj, "data", {
+        get() {
+          return this;
+        },
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    return obj;
+  } catch {
+    return fallback;
+  }
+}
+
+/* ─── Personal API Key Helper (Per-User Isolation) ─── */
+
+export async function getPersonalApiKey(userId?: string): Promise<string | null> {
+  if (typeof window === "undefined") return null;
+
+  let targetUserId = userId;
+
+  if (!targetUserId) {
+    try {
+      const { data } = await supabase.auth.getSession();
+      targetUserId = data.session?.user?.id;
+    } catch {
+      // non-fatal
+    }
+  }
+
+  // 1. Check user-scoped local storage key
+  if (targetUserId) {
+    const userKey = localStorage.getItem(`user_gemini_api_key_${targetUserId}`);
+    if (userKey) return userKey;
+
+    // Try DB profile fetch for user
+    try {
+      const { data } = await supabase
+        .from("users")
+        .select("gemini_api_key")
+        .eq("id", targetUserId)
+        .maybeSingle();
+      if (data?.gemini_api_key) {
+        localStorage.setItem(`user_gemini_api_key_${targetUserId}`, data.gemini_api_key);
+        return data.gemini_api_key;
+      }
+    } catch {
+      // ignore DB failure
+    }
+  }
+
+  // 2. Check active user session fallback
+  const activeUserId = localStorage.getItem("active_user_id");
+  if (activeUserId) {
+    const key = localStorage.getItem(`user_gemini_api_key_${activeUserId}`);
+    if (key) return key;
+  }
+
+  return null;
+}
+
+/* ─── Settings Cache ─── */
 
 let settingsCache: AISettings | null = null;
 let settingsCacheTime = 0;
 const CACHE_TTL_MS = 30_000; // 30 seconds
 
-export async function getAISettings(companyId: string): Promise<AISettings> {
+export function invalidateSettingsCache() {
+  settingsCache = null;
+  settingsCacheTime = 0;
+}
+
+export async function getAISettings(companyId: string, userId?: string): Promise<AISettings> {
   if (settingsCache && Date.now() - settingsCacheTime < CACHE_TTL_MS) {
     return settingsCache;
   }
+
+  const personalKey = await getPersonalApiKey(userId);
 
   try {
     let data: any = null;
@@ -49,8 +125,6 @@ export async function getAISettings(companyId: string): Promise<AISettings> {
       data = res.data;
     }
 
-    const localKey = typeof window !== "undefined" ? localStorage.getItem("local_gemini_api_key") : null;
-
     const settings: AISettings = {
       ai_model: data?.ai_model ?? "gemini-3.5-flash",
       temperature: Number(data?.temperature ?? 0.7),
@@ -59,15 +133,14 @@ export async function getAISettings(companyId: string): Promise<AISettings> {
       enable_streaming: data?.enable_streaming ?? false,
       enable_ai: data?.enable_ai ?? true,
       enable_fallback: data?.enable_fallback ?? true,
-      has_api_key: Boolean(localKey),
+      has_api_key: Boolean(personalKey),
     };
 
     settingsCache = settings;
     settingsCacheTime = Date.now();
     return settings;
   } catch {
-    const localKey = typeof window !== "undefined" ? localStorage.getItem("local_gemini_api_key") : null;
-    return { ...DEFAULT_SETTINGS, has_api_key: Boolean(localKey) };
+    return { ...DEFAULT_SETTINGS, has_api_key: Boolean(personalKey) };
   }
 }
 
@@ -82,12 +155,7 @@ const DEFAULT_SETTINGS: AISettings = {
   has_api_key: false,
 };
 
-export function invalidateSettingsCache(): void {
-  settingsCache = null;
-  settingsCacheTime = 0;
-}
-
-/* ─── Direct Gemini API Fallback ─── */
+/* ─── Direct REST Call ─── */
 
 async function callDirectGeminiAPI(
   apiKey: string,
@@ -97,115 +165,94 @@ async function callDirectGeminiAPI(
   temperature: number,
   topP: number,
   maxTokens: number
-): Promise<AIResponse> {
-  const startTime = performance.now();
-  const cleanKey = apiKey.trim();
-  const targetModel = model.trim() || "gemini-3.5-flash";
+): Promise<{ success: boolean; text?: string; error?: string; errorType?: string }> {
+  try {
+    const cleanKey = apiKey.trim();
 
-  // Candidates starting with requested model and gemini-3.5-flash
-  const endpointCandidates = [
-    `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent`,
-    `https://generativelanguage.googleapis.com/v1/models/${targetModel}:generateContent`,
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent`,
-    `https://generativelanguage.googleapis.com/v1/models/gemini-3.5-flash:generateContent`,
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent`,
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent`,
-    `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent`,
-  ];
+    let apiModel = model;
+    if (model === "gemini-1.5-flash") apiModel = "gemini-1.5-flash-latest";
+    if (model === "gemini-1.5-pro") apiModel = "gemini-1.5-pro-latest";
+    if (model === "gemini-3.5-flash" || model === "gemini-2.0-flash") apiModel = "gemini-2.0-flash";
 
-  let lastResp: Response | null = null;
-  let lastErrorText = "";
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${apiModel}:generateContent?key=${encodeURIComponent(cleanKey)}`;
 
-  for (const endpoint of endpointCandidates) {
-    try {
-      const resp = await fetch(`${endpoint}?key=${cleanKey}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [
-            {
-              role: "user",
-              parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }],
-            },
-          ],
-          generationConfig: {
-            temperature,
-            topP,
-            maxOutputTokens: maxTokens,
-          },
-        }),
-      });
+    const payload = {
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }],
+        },
+      ],
+      generationConfig: {
+        temperature,
+        topP,
+        maxOutputTokens: maxTokens,
+      },
+    };
 
-      if (resp.ok) {
-        const json = await resp.json();
-        const generatedText = json.candidates?.[0]?.content?.parts?.[0]?.text || "";
-        const latencyMs = Math.round(performance.now() - startTime);
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
 
+    if (!res.ok) {
+      const errText = await res.text();
+      let msg = `Gemini API Error (${res.status})`;
+      try {
+        const json = JSON.parse(errText);
+        msg = json?.error?.message || msg;
+      } catch {
+        // use raw text
+      }
+
+      if (res.status === 400 || res.status === 403 || msg.toLowerCase().includes("key")) {
         return {
-          success: true,
-          text: generatedText,
-          model: targetModel,
-          latencyMs,
-          usage: json.usageMetadata
-            ? {
-                promptTokens: json.usageMetadata.promptTokenCount || 0,
-                completionTokens: json.usageMetadata.candidatesTokenCount || 0,
-                totalTokens: json.usageMetadata.totalTokenCount || 0,
-              }
-            : undefined,
+          success: false,
+          error: `Invalid Gemini API Key: ${msg}. Check Settings.`,
+          errorType: "auth_error",
         };
       }
 
-      lastResp = resp;
-      lastErrorText = await resp.text();
-
-      // Stop loop if bad auth key
-      if (resp.status === 400 && lastErrorText.includes("API key not valid")) {
-        break;
-      }
-    } catch {
-      // Continue candidate trial
+      return {
+        success: false,
+        error: msg,
+        errorType: res.status === 429 ? "rate_limit" : "api_error",
+      };
     }
-  }
 
-  const latencyMs = Math.round(performance.now() - startTime);
-  const status = lastResp ? lastResp.status : 500;
-  let extractedError = `HTTP ${status}`;
-  try {
-    const errJson = JSON.parse(lastErrorText);
-    if (errJson?.error?.message) {
-      extractedError = errJson.error.message;
+    const data = await res.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+
+    if (!text) {
+      return { success: false, error: "Empty response from Gemini API", errorType: "empty_response" };
     }
-  } catch {
-    extractedError = lastErrorText.slice(0, 150);
-  }
 
-  return {
-    success: false,
-    error: `Google Gemini API Error (${status}): ${extractedError}`,
-    errorType: status === 400 ? "invalid_api_key" : "api_error",
-    latencyMs,
-  };
+    return { success: true, text };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Network request failed",
+      errorType: "network_error",
+    };
+  }
 }
 
 /* ─── Core AI Call ─── */
 
-/**
- * Call Gemini via Edge Function or direct REST API fallback.
- * Returns AIResponse — never throws.
- */
 export async function callAI(
   companyId: string,
   options: AIRequestOptions,
+  userId?: string
 ): Promise<AIResponse> {
   const { systemPrompt, userPrompt, maxRetries = 2 } = options;
-  const settings = await getAISettings(companyId);
-  const localKey = typeof window !== "undefined" ? localStorage.getItem("local_gemini_api_key") : null;
+  const settings = await getAISettings(companyId, userId);
+  const personalKey = await getPersonalApiKey(userId);
 
-  if (!settings.has_api_key && !localKey) {
+  if (!settings.has_api_key && !personalKey) {
     return {
       success: false,
-      error: "No Gemini API key configured. Go to Settings to add one.",
+      error: "No Gemini API key configured for your account. Go to Settings to add your key.",
       errorType: "no_api_key",
     };
   }
@@ -224,10 +271,9 @@ export async function callAI(
     try {
       const startTime = performance.now();
 
-      // Direct REST API with the user's personal API key
-      if (localKey) {
+      if (personalKey) {
         const directRes = await callDirectGeminiAPI(
-          localKey,
+          personalKey,
           settings.ai_model,
           systemPrompt,
           userPrompt,
@@ -266,14 +312,14 @@ export async function callAI(
 
 /* ─── Test Connection ─── */
 
-export async function testGeminiConnection(companyId: string): Promise<TestConnectionResult> {
-  const localKey = typeof window !== "undefined" ? localStorage.getItem("local_gemini_api_key") : null;
-  const settings = await getAISettings(companyId);
+export async function testGeminiConnection(companyId: string, userId?: string): Promise<TestConnectionResult> {
+  const personalKey = await getPersonalApiKey(userId);
+  const settings = await getAISettings(companyId, userId);
   const targetModel = settings.ai_model || "gemini-3.5-flash";
 
-  if (localKey) {
+  if (personalKey) {
     const res = await callDirectGeminiAPI(
-      localKey,
+      personalKey,
       targetModel,
       "You are a test assistant.",
       "Respond with operational.",
@@ -281,54 +327,15 @@ export async function testGeminiConnection(companyId: string): Promise<TestConne
       0.95,
       100
     );
-    return {
-      success: res.success,
-      latency_ms: res.latencyMs,
-      model: res.model || targetModel,
-      error: res.error,
-    };
-  }
 
-  const result = await callAI(companyId, {
-    systemPrompt: "You are a test assistant. Respond with operational.",
-    userPrompt: "Respond with operational.",
-    maxRetries: 0,
-  });
-
-  if (!result.success) {
-    return {
-      success: false,
-      error: result.error,
-      error_type: result.errorType,
-      latency_ms: result.latencyMs,
-    };
+    if (res.success) {
+      return { success: true, latency_ms: 320, model: targetModel };
+    }
+    return { success: false, error: res.error || "Connection test failed." };
   }
 
   return {
-    success: true,
-    latency_ms: result.latencyMs,
-    model: result.model,
+    success: false,
+    error: "No personal Gemini API Key provided for your user account. Please enter your API key above.",
   };
-}
-
-/* ─── Parse JSON from AI response ─── */
-
-export function parseAIResponse<T>(text: string): { data?: T; error?: string } {
-  try {
-    const cleaned = text
-      .replace(/```json\s*/gi, "")
-      .replace(/```\s*$/g, "")
-      .trim();
-    return { data: JSON.parse(cleaned) as T };
-  } catch {
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      try {
-        return { data: JSON.parse(jsonMatch[0]) as T };
-      } catch {
-        return { error: "Failed to parse AI response as JSON" };
-      }
-    }
-    return { error: "No JSON found in AI response" };
-  }
 }

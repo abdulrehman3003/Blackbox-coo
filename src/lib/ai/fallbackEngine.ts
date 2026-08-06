@@ -1,9 +1,8 @@
 /**
- * Fallback Engine — deterministic business logic when Gemini is unavailable.
+ * BlackBox COO — Rule-Based Fallback Engine
  *
- * Every fallback function mirrors the output structure of its AI agent.
- * Uses only real DB data (via existing agent functions) to compute results.
- * Never hallucinates, never invents numbers.
+ * Deterministic logic to analyze business metrics when Gemini API is unavailable or disabled.
+ * Every agent has a dedicated fallback function that returns standard AgentOutput shape.
  */
 
 import type {
@@ -20,67 +19,69 @@ import type {
 export function financeFallback(data: Partial<FinanceAgentData>): AgentOutput {
   const revenue = data.revenue ?? 0;
   const expenses = data.expenses ?? 0;
-  const profit = revenue - expenses;
-  const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
-  const cashFlow = data.cashFlow ?? profit;
-  const growth = data.monthlyGrowth ?? 0;
+  const margin = data.margin ?? 0;
+  const cashFlow = data.cashFlow ?? (revenue - expenses);
 
-  const warnings: string[] = [];
   const risks: AgentOutput["risks"] = [];
   const opportunities: AgentOutput["opportunities"] = [];
   const recommendations: AgentOutput["recommendations"] = [];
+  const warnings: string[] = [];
 
-  // Revenue analysis
-  if (revenue === 0) {
-    warnings.push("No revenue data available for analysis.");
-  } else if (growth < -5) {
-    risks.push({ title: "Declining Revenue", severity: "high", detail: `Revenue is declining at ${growth.toFixed(1)}% month-over-month.` });
-    recommendations.push({ title: "Investigate revenue decline drivers", priority: "urgent", category: "Finance", description: "Review pricing, competition, and customer feedback." });
-  } else if (growth > 0) {
-    opportunities.push({ title: "Positive Revenue Growth", impact: "high", detail: `Revenue growing ${growth.toFixed(1)}% MoM — explore expansion opportunities.` });
-  }
-
-  // Expense analysis
-  const expenseRatio = revenue > 0 ? (expenses / revenue) * 100 : 0;
-  if (expenseRatio > 80) {
-    risks.push({ title: "High Expense Ratio", severity: "high", detail: `Expenses consume ${expenseRatio.toFixed(1)}% of revenue. Target is <70%.` });
-    recommendations.push({ title: "Audit and reduce operational costs", priority: "high", category: "Finance", description: `Current ratio: ${expenseRatio.toFixed(1)}%. Focus on top expense categories.` });
-    warnings.push("Expense ratio exceeds 80% — cost reduction needed.");
-  }
-
-  // Margin analysis
-  if (margin < 15 && revenue > 0) {
-    risks.push({ title: "Low Profit Margin", severity: "high", detail: `Profit margin is ${margin.toFixed(1)}%. Healthy target is >20%.` });
-    recommendations.push({ title: "Improve profit margins", priority: "high", category: "Finance", description: "Review supplier pricing and menu/offering pricing." });
-  } else if (margin > 25 && revenue > 0) {
-    opportunities.push({ title: "Healthy Profit Margins", impact: "high", detail: `Margins at ${margin.toFixed(1)}% — consider reinvesting in growth.` });
-  }
-
-  // Cash flow
+  // Rules
   if (cashFlow < 0) {
-    risks.push({ title: "Negative Cash Flow", severity: "high", detail: `Cash flow is negative ($${Math.abs(cashFlow).toFixed(2)}). Immediate action needed.` });
-    recommendations.push({ title: "Improve cash flow urgently", priority: "urgent", category: "Finance", description: "Defer non-essential expenses and accelerate receivables." });
-  } else if (cashFlow > 0) {
-    opportunities.push({ title: "Positive Cash Flow", impact: "medium", detail: `Cash flow positive at $${cashFlow.toFixed(2)} — good liquidity position.` });
+    risks.push({
+      title: "Negative Cash Flow",
+      severity: "high",
+      detail: `Expenses ($${expenses.toFixed(2)}) exceed revenue ($${revenue.toFixed(2)}). Burn rate: $${Math.abs(cashFlow).toFixed(2)}/mo.`,
+    });
+    recommendations.push({
+      title: "Reduce operating expenses",
+      priority: "urgent",
+      category: "Finance",
+      description: "Audit recurring costs and cut non-essential vendor subscriptions.",
+    });
+    warnings.push("Cash flow is negative.");
   }
+
+  if (margin < 15 && revenue > 0) {
+    risks.push({
+      title: "Low Gross Margin",
+      severity: "high",
+      detail: `Gross margin is ${margin.toFixed(1)}% — below healthy 20%+ target.`,
+    });
+    recommendations.push({
+      title: "Review product pricing & unit economics",
+      priority: "high",
+      category: "Finance",
+    });
+  }
+
+  if (cashFlow > 0 && margin > 25) {
+    opportunities.push({
+      title: "Healthy Cash Surplus",
+      impact: "high",
+      detail: `Positive cash flow ($${cashFlow.toFixed(2)}) and strong margin (${margin.toFixed(1)}%). Reinvest in growth.`,
+    });
+  }
+
+  const score = Math.max(0, Math.min(100,
+    (revenue > 0 ? 30 : 0) +
+    (cashFlow > 0 ? 35 : 10) +
+    (margin > 20 ? 25 : margin > 0 ? 10 : 0) +
+    (expenses < revenue ? 10 : 0)
+  ));
 
   return {
-    summary: revenue > 0
-      ? `Revenue: $${revenue.toFixed(2)} | Expenses: $${expenses.toFixed(2)} | Profit: $${profit.toFixed(2)} | Margin: ${margin.toFixed(1)}% | Growth: ${growth.toFixed(1)}% MoM`
-      : "No financial data available for analysis.",
-    score: Math.max(0, Math.min(100, Math.round(
-      (margin > 20 ? 30 : margin > 10 ? 20 : 10) +
-      (growth > 0 ? 20 : growth > -5 ? 10 : 0) +
-      (cashFlow > 0 ? 20 : 0) +
-      (expenseRatio < 70 ? 20 : expenseRatio < 85 ? 10 : 0) +
-      (revenue > 0 ? 10 : 0)
-    ))),
+    summary: `Revenue: $${revenue.toFixed(2)} | Expenses: $${expenses.toFixed(2)} | Net: $${cashFlow.toFixed(2)} | Margin: ${margin.toFixed(1)}%`,
+    score,
     risks,
     opportunities,
-    recommendations: recommendations.slice(0, 5),
+    recommendations: recommendations.length > 0 ? recommendations : [
+      { title: "Maintain current financial tracking", priority: "low", category: "Finance" },
+    ],
     confidence: 95,
-    warnings: warnings.slice(0, 3),
-    reasoning: "Fallback analysis — computed from available financial data.",
+    warnings,
+    reasoning: "Fallback analysis — computed deterministically from finance records.",
   };
 }
 
@@ -90,58 +91,48 @@ export function salesFallback(data: Partial<SalesAgentData>): AgentOutput {
   const totalSales = data.totalSales ?? 0;
   const growth = data.salesGrowth ?? 0;
   const topCustomers = data.topCustomers ?? [];
-  const atRisk = data.atRiskCustomers ?? [];
-  const aov = data.averageOrderValue ?? 0;
-  const retention = data.retentionRate ?? 0;
+  const atRiskCount = data.atRiskCustomerCount ?? 0;
 
   const risks: AgentOutput["risks"] = [];
   const opportunities: AgentOutput["opportunities"] = [];
   const recommendations: AgentOutput["recommendations"] = [];
-
-  if (totalSales === 0) {
-    return {
-      summary: "No sales data available for analysis.",
-      score: 0,
-      risks: [],
-      opportunities: [],
-      recommendations: [{ title: "Start tracking sales to enable analysis", priority: "high", category: "Sales" }],
-      confidence: 95,
-      warnings: ["No sales records found."],
-      reasoning: "No sales data to analyze.",
-    };
-  }
+  const warnings: string[] = [];
 
   if (growth < -10) {
-    risks.push({ title: "Sharp Sales Decline", severity: "high", detail: `Sales dropped ${growth.toFixed(1)}%. Investigate market and competitive factors.` });
-  } else if (growth > 5) {
-    opportunities.push({ title: "Strong Sales Momentum", impact: "high", detail: `Growing ${growth.toFixed(1)}% — scale what's working.` });
+    risks.push({ title: "Sales Declining", severity: "high", detail: `Sales dropped ${growth.toFixed(1)}% compared to previous period.` });
+    recommendations.push({ title: "Run targeted promotional campaign", priority: "urgent", category: "Sales" });
+    warnings.push("Sales growth is significantly negative.");
+  } else if (growth > 10) {
+    opportunities.push({ title: "Sales Growth Momentum", impact: "high", detail: `Sales up ${growth.toFixed(1)}%. Double down on top-selling products.` });
   }
 
-  if (atRisk.length > 0) {
-    risks.push({ title: "Customer Churn Risk", severity: "medium", detail: `${atRisk.length} customer(s) at risk of churning.` });
-    recommendations.push({ title: `Re-engage ${atRisk.length} at-risk customers`, priority: "high", category: "Sales", description: `Send personalized offers to customers inactive 60+ days.` });
+  if (atRiskCount > 0) {
+    risks.push({ title: "Customer Churn Risk", severity: "medium", detail: `${atRiskCount} customer(s) inactive for 60+ days.` });
+    recommendations.push({ title: "Launch win-back offer for inactive customers", priority: "high", category: "Sales" });
   }
 
   if (topCustomers.length > 0) {
-    opportunities.push({ title: `Nurture Top ${Math.min(topCustomers.length, 5)} Customers`, impact: "medium", detail: `Top customer: ${topCustomers[0].name} ($${topCustomers[0].totalSpent.toFixed(2)}).` });
-    recommendations.push({ title: "Create VIP loyalty program", priority: "medium", category: "Sales", description: "Reward frequent customers with exclusive perks." });
+    opportunities.push({ title: "Nurture Top Customers", impact: "medium", detail: `${topCustomers.length} VIP customers drive significant volume.` });
   }
 
-  const aovScore = aov > 0 ? 15 : 0;
-  const growthScore = growth > 0 ? 25 : growth > -5 ? 15 : 5;
-  const retentionScore = retention > 60 ? 20 : retention > 30 ? 10 : 0;
-  const customerScore = topCustomers.length > 0 ? 20 : 0;
-  const riskPenalty = atRisk.length > 3 ? -15 : atRisk.length > 0 ? -5 : 0;
+  const score = Math.max(0, Math.min(100,
+    (totalSales > 0 ? 30 : 0) +
+    (growth > 0 ? 30 : growth > -10 ? 15 : 0) +
+    (atRiskCount === 0 ? 20 : 10) +
+    (topCustomers.length > 0 ? 20 : 0)
+  ));
 
   return {
-    summary: `Total Sales: $${totalSales.toFixed(2)} | Growth: ${growth.toFixed(1)}% | AOV: $${aov.toFixed(2)} | Top Customers: ${topCustomers.length} | At Risk: ${atRisk.length}`,
-    score: Math.max(0, Math.min(100, aovScore + growthScore + retentionScore + customerScore + riskPenalty + 20)),
+    summary: `Total Sales: $${totalSales.toFixed(2)} | Growth: ${growth.toFixed(1)}% | VIPs: ${topCustomers.length} | At-Risk: ${atRiskCount}`,
+    score,
     risks,
     opportunities,
-    recommendations: recommendations.slice(0, 5),
+    recommendations: recommendations.length > 0 ? recommendations : [
+      { title: "Continue monitoring sales velocity", priority: "low", category: "Sales" },
+    ],
     confidence: 95,
-    warnings: [],
-    reasoning: "Fallback analysis — computed from sales and customer data.",
+    warnings,
+    reasoning: "Fallback analysis — computed from sales records.",
   };
 }
 
@@ -149,12 +140,12 @@ export function salesFallback(data: Partial<SalesAgentData>): AgentOutput {
 
 export function inventoryFallback(data: Partial<InventoryAgentData>): AgentOutput {
   const totalItems = data.totalItems ?? 0;
-  const health = data.stockHealth ?? 50;
   const lowStock = data.lowStockItems ?? [];
-  const overstock = data.overstockItems ?? [];
   const shortages = data.shortages ?? [];
-  const value = data.inventoryValue ?? 0;
+  const overstock = data.overstockItems ?? [];
+  const health = data.stockHealthScore ?? 50;
   const turnover = data.turnoverRate ?? 0;
+  const value = data.inventoryValue ?? 0;
 
   const risks: AgentOutput["risks"] = [];
   const opportunities: AgentOutput["opportunities"] = [];
@@ -162,11 +153,11 @@ export function inventoryFallback(data: Partial<InventoryAgentData>): AgentOutpu
 
   if (totalItems === 0) {
     return {
-      summary: "No inventory data available for analysis.",
-      score: 0,
+      summary: "No inventory items tracked yet.",
+      score: 50,
       risks: [],
-      opportunities: [],
-      recommendations: [{ title: "Add inventory items to enable analysis", priority: "high", category: "Inventory" }],
+      opportunities: [{ title: "Add Inventory Items", impact: "high", detail: "Track stock levels to predict reorders." }],
+      recommendations: [{ title: "Upload inventory list", priority: "medium", category: "Inventory" }],
       confidence: 95,
       warnings: ["No inventory records found."],
       reasoning: "No inventory data to analyze.",
@@ -175,7 +166,7 @@ export function inventoryFallback(data: Partial<InventoryAgentData>): AgentOutpu
 
   if (lowStock.length > 0) {
     risks.push({ title: "Low Stock Alert", severity: lowStock.length > 5 ? "high" : "medium", detail: `${lowStock.length} item(s) below reorder level.` });
-    lowStock.slice(0, 3).forEach((item) => {
+    lowStock.slice(0, 3).forEach((item: any) => {
       recommendations.push({ title: `Reorder ${item.name}`, priority: item.quantity === 0 ? "urgent" : "high", category: "Inventory", description: `Current: ${item.quantity}, suggested: ${item.suggestedReorder}` });
     });
   }
@@ -219,7 +210,6 @@ export function marketingFallback(data: Partial<MarketingAgentData>): AgentOutpu
   const opportunities: AgentOutput["opportunities"] = [];
   const warnings: string[] = [];
 
-  // Generate recommendations based on customer count
   if (totalCustomers === 0) {
     recommendations.push({ title: "Start building a customer database", priority: "high", category: "Marketing", description: "Track every sale with customer contact info." });
     warnings.push("No customer data — marketing recommendations are generic.");
@@ -231,12 +221,13 @@ export function marketingFallback(data: Partial<MarketingAgentData>): AgentOutpu
     }
   }
 
-  campaignIdeas.forEach((idea) => {
-    recommendations.push({ title: idea, priority: "medium", category: "Marketing" });
+  campaignIdeas.forEach((idea: any) => {
+    recommendations.push({ title: typeof idea === "string" ? idea : idea.title || "Campaign", priority: "medium", category: "Marketing" });
   });
 
-  promotionIdeas.forEach((idea) => {
-    opportunities.push({ title: idea, impact: "medium", detail: idea });
+  promotionIdeas.forEach((idea: any) => {
+    const text = typeof idea === "string" ? idea : idea.title || "Promo";
+    opportunities.push({ title: text, impact: "medium", detail: text });
   });
 
   if (targetAudience.length > 0) {
@@ -272,8 +263,8 @@ export function operationsFallback(data: Partial<OperationsAgentData>): AgentOut
   const risks: AgentOutput["risks"] = [];
 
   if (priorities.length > 0) {
-    priorities.slice(0, 3).forEach((p) => {
-      recommendations.push({ title: p, priority: "high", category: "Operations" });
+    priorities.slice(0, 3).forEach((p: any) => {
+      recommendations.push({ title: typeof p === "string" ? p : p.title || "Priority", priority: "high", category: "Operations" });
     });
   } else {
     recommendations.push({ title: "Review and prioritize daily operational tasks", priority: "medium", category: "Operations" });
@@ -281,14 +272,14 @@ export function operationsFallback(data: Partial<OperationsAgentData>): AgentOut
   }
 
   if (improvements.length > 0) {
-    improvements.slice(0, 3).forEach((i) => {
-      recommendations.push({ title: i, priority: "medium", category: "Operations" });
+    improvements.slice(0, 3).forEach((i: any) => {
+      recommendations.push({ title: typeof i === "string" ? i : i.title || "Improvement", priority: "medium", category: "Operations" });
     });
   }
 
   if (workflowIssues.length > 0) {
-    workflowIssues.slice(0, 2).forEach((w) => {
-      risks.push({ title: "Workflow Issue", severity: "medium", detail: w });
+    workflowIssues.slice(0, 2).forEach((w: any) => {
+      risks.push({ title: "Workflow Issue", severity: "medium", detail: typeof w === "string" ? w : w.detail || "Issue" });
     });
   }
 
@@ -327,22 +318,24 @@ export function ceoFallback(agentResults: AgentOutput[]): AgentOutput {
   const totalScore = agentResults.reduce((s, r) => s + r.score, 0);
   const avgScore = Math.round(totalScore / agentResults.length);
 
-  const allRisks = agentResults.flatMap((r) => r.risks).sort((a, b) => {
-    const order = { high: 0, medium: 1, low: 2 };
+  const allRisks = agentResults.flatMap((r) => r.risks || []).sort((a: any, b: any) => {
+    const order: Record<string, number> = { high: 0, medium: 1, low: 2 };
     return (order[a.severity] ?? 1) - (order[b.severity] ?? 1);
   });
 
-  const allOpportunities = agentResults.flatMap((r) => r.opportunities).sort((a, b) => {
-    const order = { high: 0, medium: 1, low: 2 };
+  const allOpportunities = agentResults.flatMap((r) => r.opportunities || []).sort((a: any, b: any) => {
+    const order: Record<string, number> = { high: 0, medium: 1, low: 2 };
     return (order[a.impact] ?? 1) - (order[b.impact] ?? 1);
   });
 
-  const allRecommendations = agentResults.flatMap((r) => r.recommendations).sort((a, b) => {
-    const order = { urgent: 0, high: 1, medium: 2, low: 3 };
-    return (order[a.priority] ?? 2) - (order[b.priority] ?? 2);
+  const allRecommendations = agentResults.flatMap((r) => r.recommendations || []).sort((a: any, b: any) => {
+    const order: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
+    const pA = typeof a === "string" ? "medium" : a.priority;
+    const pB = typeof b === "string" ? "medium" : b.priority;
+    return (order[pA] ?? 2) - (order[pB] ?? 2);
   });
 
-  const allWarnings = agentResults.flatMap((r) => r.warnings);
+  const allWarnings = agentResults.flatMap((r) => r.warnings || []).filter((w): w is string => typeof w === "string");
   const highRisks = allRisks.filter((r) => r.severity === "high").length;
 
   // Grade

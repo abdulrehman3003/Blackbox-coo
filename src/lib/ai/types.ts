@@ -41,65 +41,13 @@ export interface RecommendationItem {
 export interface AgentOutput {
   summary: string;
   score: number;
-  risks: RiskItem[];
-  opportunities: OpportunityItem[];
-  recommendations: RecommendationItem[];
+  risks: RiskItem[] | any[];
+  opportunities: OpportunityItem[] | any[];
+  recommendations: RecommendationItem[] | string[] | any[];
   confidence: number;
   warnings: string[];
   reasoning?: string;
-}
-
-/* ─── Per-Agent Structured Data ─── */
-
-export interface FinanceAgentData {
-  revenue: number;
-  expenses: number;
-  profit: number;
-  margin: number;
-  cashFlow: number;
-  monthlyGrowth: number;
-  forecast: number;
-  topExpenseCategories: { category: string; amount: number }[];
-  revenueTrend: { month: string; amount: number }[];
-}
-
-export interface SalesAgentData {
-  totalSales: number;
-  salesGrowth: number;
-  topCustomers: { name: string; totalSpent: number; visits: number }[];
-  atRiskCustomers: { name: string; daysSinceLastVisit: number }[];
-  topProducts: { name: string; quantity: number; revenue: number }[];
-  averageOrderValue: number;
-  retentionRate: number;
-  churnRate: number;
-}
-
-export interface InventoryAgentData {
-  totalItems: number;
-  stockHealth: number;
-  lowStockItems: { name: string; quantity: number; reorderLevel: number; suggestedReorder: number }[];
-  overstockItems: { name: string; quantity: number; excess: number }[];
-  shortages: { name: string; daysUntilEmpty: number }[];
-  inventoryValue: number;
-  turnoverRate: number;
-}
-
-export interface MarketingAgentData {
-  totalCustomers: number;
-  campaignIdeas: string[];
-  promotionIdeas: string[];
-  growthOpportunities: string[];
-  socialPosts: string[];
-  targetAudience: string[];
-  emailCampaigns: string[];
-}
-
-export interface OperationsAgentData {
-  dailyPriorities: string[];
-  improvements: string[];
-  taskRecommendations: string[];
-  efficiencyScore: number;
-  workflowIssues: string[];
+  [key: string]: unknown;
 }
 
 /* ─── Agent Execution Result ─── */
@@ -116,10 +64,45 @@ export interface AgentExecutionResult {
   reasoningSummary?: string;
   error?: string;
   startedAt: string;
-  completedAt?: string;
+  completedAt: string;
 }
 
-/* ─── AI Settings ─── */
+/* ─── Pipeline Log Entry ─── */
+
+export interface PipelineLogEntry {
+  timestamp: string;
+  level: "info" | "warn" | "error" | "success";
+  agent: AgentName;
+  message: string;
+}
+
+/* ─── Full Pipeline Output ─── */
+
+export interface PipelineResult {
+  id: string;
+  companyId: string;
+  status: "completed" | "failed";
+  executionMode: ExecutionMode;
+  totalExecutionTimeMs: number;
+  businessHealthScore: number;
+  summary: any;
+  ceoResult: AgentExecutionResult | null;
+  agentResults: AgentExecutionResult[];
+  executionLog: PipelineLogEntry[];
+  warnings: string[];
+  createdAt: string;
+}
+
+export type PipelineExecution = PipelineResult;
+export type PipelineProgress = (progress: number) => void;
+
+export type FinanceAgentData = any;
+export type SalesAgentData = any;
+export type InventoryAgentData = any;
+export type MarketingAgentData = any;
+export type OperationsAgentData = any;
+
+/* ─── Gemini Settings ─── */
 
 export interface AISettings {
   ai_model: string;
@@ -132,50 +115,14 @@ export interface AISettings {
   has_api_key: boolean;
 }
 
-export const DEFAULT_AI_SETTINGS: AISettings = {
-  ai_model: "gemini-3.5-flash",
-  temperature: 0.7,
-  top_p: 0.95,
-  max_output_tokens: 4096,
-  enable_streaming: false,
-  enable_ai: true,
-  enable_fallback: true,
-  has_api_key: false,
-};
-
 export const GEMINI_MODELS = [
   { id: "gemini-3.5-flash", label: "Gemini 3.5 Flash", desc: "Ultra performance & high-speed reasoning" },
   { id: "gemini-3.1-flash-lite", label: "Gemini 3.1 Flash Lite", desc: "Fastest & lowest token cost model" },
-  { id: "gemini-3-flash-preview", label: "Gemini 3.0 Flash Preview", desc: "Cutting-edge preview model" },
-  { id: "gemini-3.1-flash-live-preview", label: "Gemini 3.1 Flash Live Preview", desc: "Real-time low latency preview model" },
-  { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", desc: "Advanced multi-agent reasoning & complex analysis" },
-  { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", desc: "High quality model for daily operations" },
-  { id: "gemini-1.5-flash", label: "Gemini 1.5 Flash", desc: "Production-ready stable fallback model" },
+  { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", desc: "Maximum reasoning capacity & complex operational strategy" },
+  { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", desc: "Balanced performance & fast execution" },
+  { id: "gemini-2.0-flash", label: "Gemini 2.0 Flash", desc: "Stable production model" },
+  { id: "gemini-1.5-flash", label: "Gemini 1.5 Flash", desc: "Legacy fast model" },
 ] as const;
-
-/* ─── Pipeline Execution ─── */
-
-export interface PipelineExecution {
-  id: string;
-  companyId: string;
-  status: PipelineStatus;
-  executionMode: ExecutionMode;
-  totalExecutionTimeMs: number;
-  businessHealthScore: number;
-  summary: string;
-  ceoResult: AgentExecutionResult | null;
-  agentResults: AgentExecutionResult[];
-  executionLog: PipelineLogEntry[];
-  warnings: string[];
-  createdAt: string;
-}
-
-export interface PipelineLogEntry {
-  timestamp: string;
-  level: "info" | "warn" | "error" | "success";
-  agent: AgentName;
-  message: string;
-}
 
 /* ─── Reports (DB shape) ─── */
 

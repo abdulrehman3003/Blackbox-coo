@@ -1,16 +1,7 @@
 import { useState, useCallback } from "react";
-import { runFinanceAgent } from "../../lib/agents/financeAgent";
-import { runSalesAgent } from "../../lib/agents/salesAgent";
-import { runInventoryAgent } from "../../lib/agents/inventoryAgent";
-import { runMarketingAgent } from "../../lib/agents/marketingAgent";
-import { synthesizeReport } from "../../lib/agents/ceoAgent";
-import type {
-  FinanceResult,
-  SalesResult,
-  InventoryResult,
-  MarketingResult,
-  ExecutiveReport,
-} from "../../lib/agents/types";
+import { runPipeline } from "../../lib/ai/pipeline";
+import type { ExecutiveReport } from "../../lib/agents/types";
+import { createFallbackExecutiveReport } from "../reports/ExecutiveReportView";
 import { seedCompanyData } from "../../lib/agents/seedData";
 import { supabase } from "../../lib/supabase";
 
@@ -28,6 +19,7 @@ const initialSteps: AgentStep[] = [
   { id: "sales", label: "Sales Agent", icon: "ShoppingCart", status: "pending" },
   { id: "inventory", label: "Inventory Agent", icon: "Package", status: "pending" },
   { id: "marketing", label: "Marketing Agent", icon: "Megaphone", status: "pending" },
+  { id: "operations", label: "Operations Agent", icon: "Settings", status: "pending" },
   { id: "ceo", label: "CEO Agent", icon: "Crown", status: "pending" },
   { id: "saving", label: "Saving Report", icon: "Save", status: "pending" },
 ];
@@ -58,8 +50,6 @@ export function saveLocalReport(companyId: string, reportRow: any) {
   }
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 /* ─── Hook ─── */
 
 export function useAnalysisRunner(companyId: string, onComplete?: () => void) {
@@ -68,12 +58,6 @@ export function useAnalysisRunner(companyId: string, onComplete?: () => void) {
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState<ExecutiveReport | null>(null);
   const [progress, setProgress] = useState(0);
-
-  const updateStep = (id: string, status: AgentStep["status"]) => {
-    setSteps((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, status } : s)),
-    );
-  };
 
   const clearReport = useCallback(() => setReport(null), []);
 
@@ -84,12 +68,7 @@ export function useAnalysisRunner(companyId: string, onComplete?: () => void) {
     setSteps(initialSteps);
     setProgress(0);
 
-    let fin: FinanceResult;
-    let sal: SalesResult;
-    let inv: InventoryResult;
-    let mkt: MarketingResult;
-
-    // ── Check if we have real data, seed if empty ──
+    // Seed data if empty
     if (companyId) {
       try {
         const { count: salesCount } = await supabase
@@ -106,71 +85,40 @@ export function useAnalysisRunner(companyId: string, onComplete?: () => void) {
     }
 
     try {
-      updateStep("finance", "running");
-      fin = await runFinanceAgent(companyId);
-      updateStep("finance", "done");
-      setProgress(17);
+      // Execute the unified Gemini AI Pipeline
+      const pipelineResult = await runPipeline(companyId, (p) => {
+        setProgress(p);
 
-      await sleep(300);
-      updateStep("sales", "running");
-      sal = await runSalesAgent(companyId);
-      updateStep("sales", "done");
-      setProgress(33);
+        if (p >= 15) setSteps((prev) => prev.map((s) => s.id === "finance" ? { ...s, status: "done" } : s.id === "sales" ? { ...s, status: "running" } : s));
+        if (p >= 35) setSteps((prev) => prev.map((s) => s.id === "sales" ? { ...s, status: "done" } : s.id === "inventory" ? { ...s, status: "running" } : s));
+        if (p >= 55) setSteps((prev) => prev.map((s) => s.id === "inventory" ? { ...s, status: "done" } : s.id === "marketing" ? { ...s, status: "running" } : s));
+        if (p >= 75) setSteps((prev) => prev.map((s) => s.id === "marketing" ? { ...s, status: "done" } : s.id === "operations" ? { ...s, status: "running" } : s));
+        if (p >= 90) setSteps((prev) => prev.map((s) => s.id === "operations" ? { ...s, status: "done" } : s.id === "ceo" ? { ...s, status: "running" } : s));
+      });
 
-      await sleep(300);
-      updateStep("inventory", "running");
-      inv = await runInventoryAgent(companyId);
-      updateStep("inventory", "done");
-      setProgress(50);
+      setSteps((prev) => prev.map((s) => ({ ...s, status: "done" })));
 
-      await sleep(300);
-      updateStep("marketing", "running");
-      mkt = await runMarketingAgent(companyId);
-      updateStep("marketing", "done");
-      setProgress(67);
+      const summaryReport = typeof pipelineResult.summary === "object"
+        ? pipelineResult.summary
+        : createFallbackExecutiveReport(pipelineResult.summary);
 
-      await sleep(400);
-      updateStep("ceo", "running");
-      const execReport = synthesizeReport(fin, sal, inv, mkt, true);
-      updateStep("ceo", "done");
-      setProgress(83);
+      setReport(summaryReport);
 
-      setReport(execReport);
-
-      // Save report
-      updateStep("saving", "running");
       const reportRow = {
-        id: `report-${Date.now()}`,
+        id: pipelineResult.id || `report-${Date.now()}`,
         company_id: companyId,
         type: "full_analysis",
         status: "completed",
-        execution_mode: "ai",
+        execution_mode: pipelineResult.executionMode || "ai",
         title: `Executive COO Audit — ${new Date().toLocaleDateString()}`,
-        created_at: new Date().toISOString(),
-        summary: execReport,
-        health_score: execReport.businessScore,
-        total_execution_time_ms: 2400,
+        created_at: pipelineResult.createdAt || new Date().toISOString(),
+        summary: summaryReport,
+        health_score: pipelineResult.businessHealthScore || 85,
+        total_execution_time_ms: pipelineResult.totalExecutionTimeMs || 3000,
       };
 
-      try {
-        await supabase.from("ai_reports").insert({
-          company_id: companyId,
-          type: "full_analysis",
-          status: "completed",
-          execution_mode: "ai",
-          title: reportRow.title,
-          summary: execReport,
-          business_health_score: execReport.businessScore,
-          total_execution_time_ms: 2400,
-        });
-      } catch {
-        // ignore DB save error
-      }
-
       saveLocalReport(companyId, reportRow);
-      updateStep("saving", "done");
       setProgress(100);
-
       onComplete?.();
     } catch (err) {
       console.error("Analysis pipeline error:", err);

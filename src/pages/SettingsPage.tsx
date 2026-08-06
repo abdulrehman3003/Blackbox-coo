@@ -18,7 +18,7 @@ import {
   Trash2,
   ExternalLink,
 } from "lucide-react";
-import { testGeminiConnection, invalidateSettingsCache } from "../lib/ai/aiService";
+import { testGeminiConnection, invalidateSettingsCache, getPersonalApiKey } from "../lib/ai/aiService";
 import { GEMINI_MODELS } from "../lib/ai/types";
 import Button from "../components/ui/Button";
 import PageHeader from "../components/ui/PageHeader";
@@ -29,7 +29,7 @@ const DEFAULT_TOP_P = 0.95;
 const DEFAULT_MAX_TOKENS = 4096;
 
 export default function SettingsPage() {
-  const { company } = useAuth();
+  const { user, company } = useAuth();
 
   // Model settings
   const [aiModel, setAiModel] = useState("gemini-3.5-flash");
@@ -68,7 +68,7 @@ export default function SettingsPage() {
 
     async function load() {
       try {
-        // Load AI settings
+        // Load AI model settings
         if (company?.id) {
           const { data: settings } = await supabase
             .from("company_settings")
@@ -87,10 +87,10 @@ export default function SettingsPage() {
           }
         }
 
-        // Check if API key exists locally
-        const localKey = localStorage.getItem("local_gemini_api_key");
-        if (localKey) {
-          if (!cancelled) setHasKey(true);
+        // Check user personal API key
+        if (user?.id) {
+          const userKey = await getPersonalApiKey(user.id);
+          if (!cancelled) setHasKey(Boolean(userKey));
         }
       } catch {
         // Non-fatal
@@ -101,7 +101,7 @@ export default function SettingsPage() {
 
     load();
     return () => { cancelled = true; };
-  }, [company?.id]);
+  }, [company?.id, user?.id]);
 
   const saveSettings = async (e?: FormEvent) => {
     if (e) e.preventDefault();
@@ -110,380 +110,367 @@ export default function SettingsPage() {
     setError(null);
 
     try {
-      const settingsData = {
-        ai_model: aiModel,
-        temperature,
-        top_p: topP,
-        max_output_tokens: maxTokens,
-        enable_streaming: enableStreaming,
-        enable_ai: enableAi,
-        enable_fallback: enableFallback,
-      };
-
       if (company?.id) {
-        const { error: err } = await supabase
-          .from("company_settings")
-          .upsert({
-            company_id: company.id,
-            ...settingsData,
-          }, { onConflict: "company_id" });
+        const settingsData = {
+          company_id: company.id,
+          ai_model: aiModel,
+          temperature,
+          top_p: topP,
+          max_output_tokens: maxTokens,
+          enable_streaming: enableStreaming,
+          enable_ai: enableAi,
+          enable_fallback: enableFallback,
+        };
 
-        if (err) console.warn("Supabase settings save warning:", err.message);
+        const { error: upsertErr } = await supabase
+          .from("company_settings")
+          .upsert(settingsData, { onConflict: "company_id" });
+
+        if (upsertErr) throw upsertErr;
+      }
+
+      // Save user personal API key strictly scoped to user.id
+      if (user?.id && apiKey.trim()) {
+        const keyVal = apiKey.trim();
+        localStorage.setItem(`user_gemini_api_key_${user.id}`, keyVal);
+        localStorage.setItem("active_user_id", user.id);
+        // Clear un-scoped legacy key to prevent leaks across accounts
+        localStorage.removeItem("local_gemini_api_key");
+
+        try {
+          await supabase.from("users").update({ gemini_api_key: keyVal }).eq("id", user.id);
+        } catch {
+          // non-fatal if column doesn't exist yet
+        }
+
+        setHasKey(true);
+        setApiKey("");
       }
 
       invalidateSettingsCache();
       setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
+      setTimeout(() => setSaved(false), 4000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't save settings.");
+      setError(err instanceof Error ? err.message : "Failed to save settings");
     } finally {
       setSaving(false);
     }
-  };
-
-  const handleSaveKey = async (e: FormEvent) => {
-    e.preventDefault();
-    const keyVal = apiKey.trim();
-    if (!keyVal) {
-      setError("Paste your Gemini API key to save it.");
-      return;
-    }
-
-    if (keyVal.length < 15) {
-      setError("The API key looks too short. Please copy a valid Gemini API key from Google AI Studio.");
-      return;
-    }
-
-    setSaving(true);
-    setError(null);
-
-    try {
-      // Save the key in your browser — it stays on this device only
-      localStorage.setItem("local_gemini_api_key", keyVal);
-
-      setHasKey(true);
-      setApiKey("");
-      setSaved(true);
-      invalidateSettingsCache();
-
-      // Test connection immediately after saving
-      const testRes = await testGeminiConnection(company?.id || "default");
-      setTestResult(testRes);
-
-      setTimeout(() => setSaved(false), 3000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't save API key.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleClearKey = () => {
-    localStorage.removeItem("local_gemini_api_key");
-    setHasKey(false);
-    setApiKey("");
-    setTestResult(null);
-    invalidateSettingsCache();
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
   };
 
   const handleTestConnection = async () => {
     setTesting(true);
     setTestResult(null);
+
+    // If key is being typed right now, temporarily register for user
+    if (user?.id && apiKey.trim()) {
+      localStorage.setItem(`user_gemini_api_key_${user.id}`, apiKey.trim());
+      localStorage.setItem("active_user_id", user.id);
+      invalidateSettingsCache();
+    }
+
     try {
-      const result = await testGeminiConnection(company?.id || "default");
+      const result = await testGeminiConnection(company?.id ?? "", user?.id);
       setTestResult(result);
-    } catch {
-      setTestResult({ success: false, error: "Test failed unexpectedly." });
+    } catch (err) {
+      setTestResult({
+        success: false,
+        error: err instanceof Error ? err.message : "Test failed",
+      });
     } finally {
       setTesting(false);
     }
   };
 
+  const handleClearApiKey = async () => {
+    if (user?.id) {
+      localStorage.removeItem(`user_gemini_api_key_${user.id}`);
+      localStorage.removeItem("local_gemini_api_key");
+      try {
+        await supabase.from("users").update({ gemini_api_key: null }).eq("id", user.id);
+      } catch {
+        // non-fatal
+      }
+    }
+    setHasKey(false);
+    setApiKey("");
+    invalidateSettingsCache();
+    setTestResult(null);
+  };
+
   if (loading) {
     return (
-      <div className="space-y-6">
-        <PageHeader title="Settings" subtitle="Configure your AI assistant and integrations" icon={SettingsIcon} />
-        <div className="text-sm text-text-muted animate-pulse">Loading settings…</div>
+      <div className="space-y-6 max-w-4xl mx-auto">
+        <PageHeader icon={SettingsIcon} title="AI Settings" description="Loading system settings…" />
+        <div className="space-y-4">
+          <div className="h-48 glass-card animate-pulse" />
+          <div className="h-64 glass-card animate-pulse" />
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-4xl mx-auto">
       <PageHeader
+        icon={SettingsIcon}
         title="AI Settings"
-        subtitle="Configure your AI models, API keys, and execution preferences"
+        description="Configure your personal Gemini API key and AI execution settings."
       />
 
-      <div className="max-w-2xl space-y-6">
-        {/* ── AI Model Selection ── */}
-        <GlassCard padding="md">
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center">
-              <Sparkles size={20} className="text-accent" />
+      {/* Success banner */}
+      {saved && (
+        <div className="p-4 rounded-xl bg-success/10 border border-success/30 text-success text-xs font-medium flex items-center gap-2 animate-slide-up">
+          <CheckCircle2 size={16} /> Settings saved successfully!
+        </div>
+      )}
+
+      {/* Error banner */}
+      {error && (
+        <div className="p-4 rounded-xl bg-danger/10 border border-danger/30 text-danger text-xs font-medium flex items-center gap-2 animate-slide-up">
+          <AlertCircle size={16} /> {error}
+        </div>
+      )}
+
+      <form onSubmit={saveSettings} className="space-y-6">
+        {/* ── Personal API Key Section ── */}
+        <GlassCard className="p-6 space-y-4">
+          <div className="flex items-center justify-between border-b border-card-border pb-4">
+            <div className="flex items-center gap-2">
+              <KeyRound size={18} className="text-accent" />
+              <h2 className="text-sm font-semibold text-text-primary">Personal Gemini API Key</h2>
             </div>
-            <div>
-              <h2 className="text-sm font-semibold text-text-primary">AI Model</h2>
-              <p className="text-xs text-text-muted">Choose which Gemini model powers your AI analysis</p>
+            <a
+              href="https://aistudio.google.com/app/apikey"
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs text-accent hover:underline flex items-center gap-1"
+            >
+              Get Free Key <ExternalLink size={12} />
+            </a>
+          </div>
+
+          <p className="text-xs text-text-muted leading-relaxed">
+            Your API key is private to your user account (<span className="text-text-primary font-mono">{user?.email}</span>) and is never shared with other users or team members.
+          </p>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label htmlFor="user-api-key" className="text-xs font-medium text-text-secondary">
+                Personal API Key
+              </label>
+              {hasKey && (
+                <span className="text-[10px] text-success font-semibold px-2 py-0.5 rounded-full bg-success/10 border border-success/20 flex items-center gap-1">
+                  <CheckCircle2 size={10} /> Key Configured (Personal)
+                </span>
+              )}
+            </div>
+
+            <div className="relative">
+              <input
+                id="user-api-key"
+                type={showKey ? "text" : "password"}
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder={hasKey ? "•••••••••••••••••••••••• (Key set)" : "AIzaSy..."}
+                className="w-full px-3 py-2 pr-10 text-xs bg-surface border border-card-border rounded-xl text-text-primary placeholder:text-text-muted/50 focus:outline-none focus:border-accent font-mono"
+              />
+              <button
+                type="button"
+                onClick={() => setShowKey(!showKey)}
+                className="absolute right-3 top-2.5 text-text-muted hover:text-text-primary transition-colors"
+                aria-label={showKey ? "Hide API key" : "Show API key"}
+              >
+                {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
             </div>
           </div>
 
-          <div className="grid gap-2">
-            {GEMINI_MODELS.map((m) => (
-              <button
-                key={m.id}
+          <div className="flex items-center justify-between pt-2">
+            <div className="flex items-center gap-2">
+              <Button
                 type="button"
-                onClick={() => setAiModel(m.id)}
-                className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
-                  aiModel === m.id
-                    ? "border-accent bg-accent-subtle/50 text-text-primary"
-                    : "border-border bg-surface hover:border-border-hover text-text-secondary"
-                }`}
+                variant="secondary"
+                size="sm"
+                icon={Wifi}
+                loading={testing}
+                onClick={handleTestConnection}
               >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-text-primary">{m.label}</span>
-                  {aiModel === m.id && <CheckCircle2 size={14} className="text-accent" />}
-                </div>
-                <p className="text-[11px] text-text-muted mt-0.5">{m.desc}</p>
-              </button>
-            ))}
+                Test Key Connection
+              </Button>
+
+              {hasKey && (
+                <Button
+                  type="button"
+                  variant="danger"
+                  size="sm"
+                  icon={Trash2}
+                  onClick={handleClearApiKey}
+                >
+                  Remove Key
+                </Button>
+              )}
+            </div>
           </div>
+
+          {/* Connection Test Result */}
+          {testResult && (
+            <div
+              className={`p-3 rounded-xl border text-xs leading-relaxed animate-slide-up ${
+                testResult.success
+                  ? "bg-success/10 border-success/30 text-success"
+                  : "bg-danger/10 border-danger/30 text-danger"
+              }`}
+            >
+              {testResult.success ? (
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 font-medium">
+                    <CheckCircle2 size={14} /> Connection Verified ({testResult.model || aiModel})
+                  </span>
+                  <span className="text-[10px] text-text-muted">{testResult.latency_ms}ms response</span>
+                </div>
+              ) : (
+                <div className="flex items-start gap-1.5 font-medium">
+                  <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                  <span>{testResult.error || "Connection failed. Please check key."}</span>
+                </div>
+              )}
+            </div>
+          )}
         </GlassCard>
 
-        {/* ── Model Parameters ── */}
-        <GlassCard padding="md">
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center">
-              <Gauge size={20} className="text-accent" />
-            </div>
-            <div>
-              <h2 className="text-sm font-semibold text-text-primary">Model Parameters</h2>
-              <p className="text-xs text-text-muted">Fine-tune generation temperature and token limits</p>
-            </div>
+        {/* ── AI Model Configuration ── */}
+        <GlassCard className="p-6 space-y-6">
+          <div className="flex items-center gap-2 border-b border-card-border pb-4">
+            <Sparkles size={18} className="text-accent" />
+            <h2 className="text-sm font-semibold text-text-primary">Model Configuration</h2>
           </div>
 
-          <div className="space-y-4">
+          <div className="grid sm:grid-cols-2 gap-4">
+            {/* Model Selector */}
+            <div className="space-y-2 sm:col-span-2">
+              <label htmlFor="ai-model" className="text-xs font-medium text-text-secondary">Default AI Model</label>
+              <select
+                id="ai-model"
+                value={aiModel}
+                onChange={(e) => setAiModel(e.target.value)}
+                className="w-full px-3 py-2 text-xs bg-surface border border-card-border rounded-xl text-text-primary focus:outline-none focus:border-accent"
+              >
+                {GEMINI_MODELS.map((m) => (
+                  <option key={m.id} value={m.id} className="bg-bg text-text-primary">
+                    {m.label} — {m.desc}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             {/* Temperature */}
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <div className="flex justify-between text-xs">
-                <span className="text-text-secondary flex items-center gap-1.5">
+                <label htmlFor="temp-slider" className="font-medium text-text-secondary flex items-center gap-1">
                   <Thermometer size={14} className="text-accent" /> Temperature
-                </span>
-                <span className="font-mono text-text-primary">{temperature.toFixed(2)}</span>
+                </label>
+                <span className="font-mono text-accent">{temperature}</span>
               </div>
               <input
+                id="temp-slider"
                 type="range"
-                min="0.0"
-                max="1.0"
+                min="0"
+                max="1"
                 step="0.05"
                 value={temperature}
                 onChange={(e) => setTemperature(parseFloat(e.target.value))}
-                className="w-full accent-accent bg-surface rounded-lg cursor-pointer"
+                className="w-full accent-accent cursor-pointer"
               />
+              <p className="text-[10px] text-text-muted">Lower = predictable, Higher = creative</p>
             </div>
 
             {/* Top P */}
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <div className="flex justify-between text-xs">
-                <span className="text-text-secondary flex items-center gap-1.5">
-                  <Gauge size={14} className="text-accent" /> Top-P Sampling
-                </span>
-                <span className="font-mono text-text-primary">{topP.toFixed(2)}</span>
+                <label htmlFor="top-p-slider" className="font-medium text-text-secondary flex items-center gap-1">
+                  <Gauge size={14} className="text-accent" /> Top P
+                </label>
+                <span className="font-mono text-accent">{topP}</span>
               </div>
               <input
+                id="top-p-slider"
                 type="range"
-                min="0.1"
-                max="1.0"
+                min="0"
+                max="1"
                 step="0.05"
                 value={topP}
                 onChange={(e) => setTopP(parseFloat(e.target.value))}
-                className="w-full accent-accent bg-surface rounded-lg cursor-pointer"
+                className="w-full accent-accent cursor-pointer"
               />
+              <p className="text-[10px] text-text-muted">Nucleus sampling threshold</p>
             </div>
 
             {/* Max Output Tokens */}
-            <div className="space-y-1.5">
+            <div className="space-y-2 sm:col-span-2">
               <div className="flex justify-between text-xs">
-                <span className="text-text-secondary flex items-center gap-1.5">
-                  <Maximize2 size={14} className="text-accent" /> Max Output Tokens
-                </span>
-                <span className="font-mono text-text-primary">{maxTokens}</span>
+                <label htmlFor="max-tokens-slider" className="font-medium text-text-secondary flex items-center gap-1">
+                  <Maximize2 size={14} className="text-accent" /> Max Tokens
+                </label>
+                <span className="font-mono text-accent">{maxTokens}</span>
               </div>
               <input
+                id="max-tokens-slider"
                 type="range"
                 min="512"
                 max="8192"
                 step="256"
                 value={maxTokens}
                 onChange={(e) => setMaxTokens(parseInt(e.target.value, 10))}
-                className="w-full accent-accent bg-surface rounded-lg cursor-pointer"
+                className="w-full accent-accent cursor-pointer"
               />
+              <p className="text-[10px] text-text-muted">Maximum token length generated per response</p>
             </div>
           </div>
         </GlassCard>
 
-        {/* ── Gemini API Key ── */}
-        <GlassCard padding="md">
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center">
-              <KeyRound size={20} className="text-accent" />
-            </div>
-            <div>
-              <h2 className="text-sm font-semibold text-text-primary">Gemini API Key</h2>
-              <p className="text-xs text-text-muted">
-                Your personal Gemini API key. Add yours here — each team member uses their own key. Stored in your browser.
-              </p>
-            </div>
-          </div>
-
-          {hasKey && (
-            <div className="flex items-center justify-between p-3 rounded-xl bg-success/10 border border-success/30 text-success text-xs mb-4">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 size={16} className="shrink-0" />
-                <span>API key configured.</span>
-              </div>
-              <button
-                type="button"
-                onClick={handleClearKey}
-                className="text-xs text-danger hover:underline flex items-center gap-1 cursor-pointer"
-              >
-                <Trash2 size={12} /> Clear Key
-              </button>
-            </div>
-          )}
-
-          <form onSubmit={handleSaveKey} className="space-y-4">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-text-secondary" htmlFor="apiKey">
-                {hasKey ? "Replace Gemini API key" : "Paste Gemini API key"}
-              </label>
-              <div className="relative">
-                <input
-                  id="apiKey"
-                  type={showKey ? "text" : "password"}
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder={hasKey ? "•••••••••••••••••••••• (paste new key to replace)" : "Paste your Google Gemini API key (AIzaSy...)"}
-                  autoComplete="off"
-                  className="w-full h-10 px-3 pr-10 rounded-xl bg-surface border border-border text-text-primary text-sm placeholder:text-text-muted focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-colors"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowKey(!showKey)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary transition-colors cursor-pointer p-1"
-                  aria-label={showKey ? "Hide API key" : "Show API key"}
-                >
-                  {showKey ? <EyeOff size={15} /> : <Eye size={15} />}
-                </button>
-              </div>
-              <div className="flex items-center justify-between text-[11px] text-text-muted mt-1">
-                <span>Free key available at Google AI Studio</span>
-                <a
-                  href="https://aistudio.google.com/app/apikey"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-accent hover:underline flex items-center gap-1 font-medium"
-                >
-                  Get API Key <ExternalLink size={10} />
-                </a>
-              </div>
-            </div>
-            <Button type="submit" variant="primary" loading={saving} icon={Save}>
-              {hasKey ? "Update Key" : "Save Key"}
-            </Button>
-          </form>
-        </GlassCard>
-
-        {/* ── Test Connection ── */}
-        <GlassCard padding="md">
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center">
-              <Wifi size={20} className="text-accent" />
-            </div>
-            <div>
-              <h2 className="text-sm font-semibold text-text-primary">Test Connection</h2>
-              <p className="text-xs text-text-muted">
-                Verify your API key and selected model ({aiModel}) are operational
-              </p>
-            </div>
+        {/* ── System Toggles ── */}
+        <GlassCard className="p-6 space-y-4">
+          <div className="flex items-center gap-2 border-b border-card-border pb-4">
+            <RefreshCw size={18} className="text-accent" />
+            <h2 className="text-sm font-semibold text-text-primary">Execution Controls</h2>
           </div>
 
           <div className="space-y-3">
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={handleTestConnection}
-              loading={testing}
-              disabled={testing}
-              icon={testing ? undefined : RefreshCw}
-            >
-              {testing ? "Testing..." : "Test Connection"}
-            </Button>
-
-            {testResult && (
-              <div className={`p-3 rounded-xl text-sm ${
-                testResult.success
-                  ? "bg-success/10 border border-success/30 text-success"
-                  : "bg-danger/10 border border-danger/30 text-danger"
-              }`}>
-                {testResult.success ? (
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2 font-medium">
-                      <CheckCircle2 size={14} />
-                      Connection Successful! Gemini API key is valid.
-                    </div>
-                    <div className="text-xs space-y-0.5 mt-1">
-                      <p>Model: <span className="font-mono">{testResult.model}</span></p>
-                      <p>Latency: <span className="font-mono">{testResult.latency_ms}ms</span></p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 font-semibold">
-                      <AlertCircle size={16} />
-                      {testResult.error || "Connection failed"}
-                    </div>
-                    <p className="text-xs text-text-secondary">
-                      Make sure your Gemini API Key was copied correctly from Google AI Studio.
-                    </p>
-                    <a
-                      href="https://aistudio.google.com/app/apikey"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-xs text-accent hover:underline font-medium pt-1"
-                    >
-                      Get a free key at Google AI Studio <ExternalLink size={12} />
-                    </a>
-                  </div>
-                )}
+            <label className="flex items-center justify-between p-3 rounded-xl bg-surface border border-card-border cursor-pointer">
+              <div>
+                <span className="text-xs font-semibold text-text-primary block">Enable Live AI Calls</span>
+                <span className="text-[10px] text-text-muted">Use live Gemini models for business audits</span>
               </div>
-            )}
+              <input
+                type="checkbox"
+                checked={enableAi}
+                onChange={(e) => setEnableAi(e.target.checked)}
+                className="w-4 h-4 rounded border-card-border accent-accent cursor-pointer"
+              />
+            </label>
+
+            <label className="flex items-center justify-between p-3 rounded-xl bg-surface border border-card-border cursor-pointer">
+              <div>
+                <span className="text-xs font-semibold text-text-primary block">Rule Fallback Engine</span>
+                <span className="text-[10px] text-text-muted">Automatically use rule analysis if API limits are reached</span>
+              </div>
+              <input
+                type="checkbox"
+                checked={enableFallback}
+                onChange={(e) => setEnableFallback(e.target.checked)}
+                className="w-4 h-4 rounded border-card-border accent-accent cursor-pointer"
+              />
+            </label>
           </div>
         </GlassCard>
 
-        {/* ── Save All Button ── */}
-        <div className="flex items-center gap-3">
-          <Button onClick={() => saveSettings()} variant="primary" loading={saving} icon={Save}>
+        {/* Save Bar */}
+        <div className="flex justify-end pt-2">
+          <Button type="submit" variant="primary" size="md" icon={Save} loading={saving}>
             Save All Settings
           </Button>
-          {saved && (
-            <span className="text-xs text-success animate-fade-in flex items-center gap-1">
-              <CheckCircle2 size={14} />
-              Settings saved successfully
-            </span>
-          )}
         </div>
-
-        {error && (
-          <div role="alert" className="px-3 py-2.5 rounded-xl bg-danger/10 border border-danger/30 text-danger text-xs flex items-center gap-2">
-            <AlertCircle size={14} className="shrink-0" />
-            <span>{error}</span>
-          </div>
-        )}
-      </div>
+      </form>
     </div>
   );
 }

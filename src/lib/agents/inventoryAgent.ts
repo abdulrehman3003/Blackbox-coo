@@ -3,7 +3,6 @@ import type { InventoryResult } from "./types";
 
 export async function runInventoryAgent(companyId: string): Promise<InventoryResult> {
   let items: any[] = [];
-  let recentSales: any[] = [];
 
   if (companyId) {
     try {
@@ -12,15 +11,6 @@ export async function runInventoryAgent(companyId: string): Promise<InventoryRes
         .select("*")
         .eq("company_id", companyId);
       if (i) items = i;
-
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      const { data: s } = await supabase
-        .from("sales")
-        .select("item_name, quantity, sold_at")
-        .eq("company_id", companyId)
-        .gte("sold_at", thirtyDaysAgo.toISOString());
-      if (s) recentSales = s;
     } catch {
       // non-fatal
     }

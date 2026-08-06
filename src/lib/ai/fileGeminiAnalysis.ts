@@ -192,17 +192,18 @@ export async function runFileGeminiAnalysis(
 
     if (result.success && result.text) {
       const parsed = parseAIResponse<FileGeminiResult>(result.text);
+      const data = parsed?.data || parsed;
 
-      if (parsed.data) {
+      if (data && (data.summary || typeof data.score === "number")) {
         return {
           executionMode: "ai",
           modelUsed: result.model || "gemini-3.5-flash",
-          summary: parsed.data.summary || `Analysis of ${file.fileName}`,
-          score: typeof parsed.data.score === "number" ? Math.max(0, Math.min(100, parsed.data.score)) : 75,
-          risks: Array.isArray(parsed.data.risks) ? parsed.data.risks : [],
-          opportunities: Array.isArray(parsed.data.opportunities) ? parsed.data.opportunities : [],
-          recommendations: Array.isArray(parsed.data.recommendations) ? parsed.data.recommendations : [],
-          insights: Array.isArray(parsed.data.insights) ? parsed.data.insights : [],
+          summary: data.summary || `Analysis of ${file.fileName}`,
+          score: typeof data.score === "number" ? Math.max(0, Math.min(100, data.score)) : 75,
+          risks: Array.isArray(data.risks) ? data.risks : [],
+          opportunities: Array.isArray(data.opportunities) ? data.opportunities : [],
+          recommendations: Array.isArray(data.recommendations) ? data.recommendations : [],
+          insights: Array.isArray(data.insights) ? data.insights : [],
         };
       }
     }
