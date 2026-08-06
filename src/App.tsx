@@ -21,6 +21,7 @@ import ProfilePage from "./pages/ProfilePage";
 import SettingsPage from "./pages/SettingsPage";
 import CommandCenterPage from "./pages/CommandCenterPage";
 import AgentDashboardPage from "./pages/AgentDashboardPage";
+import PrivacyPage from "./pages/PrivacyPage";
 
 export default function App() {
   return (
@@ -31,6 +32,7 @@ export default function App() {
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/update-password" element={<UpdatePasswordPage />} />
+          <Route path="/privacy" element={<PrivacyPage />} />
 
           {/* Protected routes — wrapped in app shell */}
           <Route element={<ProtectedRoute />}>
