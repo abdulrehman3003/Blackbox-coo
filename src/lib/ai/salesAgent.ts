@@ -63,7 +63,7 @@ export async function runSalesAgent(companyId: string): Promise<{
           output: { ...parsed.data, score: clampScore(parsed.data.score), confidence: clampScore(parsed.data.confidence), risks: (parsed.data.risks ?? []).slice(0, 5), opportunities: (parsed.data.opportunities ?? []).slice(0, 5), recommendations: (parsed.data.recommendations ?? []).slice(0, 5), warnings: (parsed.data.warnings ?? []).slice(0, 3) },
           executionMode,
           executionTimeMs: Math.round(performance.now() - startTime),
-          structuredData: structuredData as Record<string, unknown>,
+          structuredData: structuredData as unknown as Record<string, unknown>,
         };
       }
     }
@@ -73,7 +73,7 @@ export async function runSalesAgent(companyId: string): Promise<{
       output: salesFallback(structuredData),
       executionMode,
       executionTimeMs: Math.round(performance.now() - startTime),
-      structuredData: structuredData as Record<string, unknown>,
+      structuredData: structuredData as unknown as Record<string, unknown>,
     };
   } catch {
     return {

@@ -64,7 +64,7 @@ export async function runOperationsAgent(companyId: string): Promise<{
           output: { ...parsed.data, score: clampScore(parsed.data.score), confidence: clampScore(parsed.data.confidence), risks: (parsed.data.risks ?? []).slice(0, 5), opportunities: (parsed.data.opportunities ?? []).slice(0, 5), recommendations: (parsed.data.recommendations ?? []).slice(0, 5), warnings: (parsed.data.warnings ?? []).slice(0, 3) },
           executionMode,
           executionTimeMs: Math.round(performance.now() - startTime),
-          structuredData: structuredData as Record<string, unknown>,
+          structuredData: structuredData as unknown as Record<string, unknown>,
         };
       }
     }
@@ -74,7 +74,7 @@ export async function runOperationsAgent(companyId: string): Promise<{
       output: operationsFallback(structuredData),
       executionMode,
       executionTimeMs: Math.round(performance.now() - startTime),
-      structuredData: structuredData as Record<string, unknown>,
+      structuredData: structuredData as unknown as Record<string, unknown>,
     };
   } catch {
     return {
@@ -90,11 +90,10 @@ async function gatherOperationsData(companyId: string): Promise<OperationsAgentD
   const thirtyDaysAgo = new Date(now);
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-  const [tasksRes, inventoryRes, salesRes, customersRes] = await Promise.all([
+  const [tasksRes, inventoryRes, salesRes] = await Promise.all([
     supabase.from("tasks").select("*").eq("company_id", companyId),
     supabase.from("inventory").select("name, quantity, reorder_level").eq("company_id", companyId),
     supabase.from("sales").select("amount, sold_at").eq("company_id", companyId).gte("sold_at", thirtyDaysAgo.toISOString()),
-    supabase.from("customers").select("id, last_visit_at").eq("company_id", companyId),
   ]);
 
   const tasks = tasksRes.data ?? [];

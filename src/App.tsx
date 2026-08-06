@@ -19,6 +19,7 @@ import ReportsPage from "./pages/ReportsPage";
 import UploadPage from "./pages/UploadPage";
 import ProfilePage from "./pages/ProfilePage";
 import SettingsPage from "./pages/SettingsPage";
+import CommandCenterPage from "./pages/CommandCenterPage";
 
 export default function App() {
   return (
@@ -38,6 +39,7 @@ export default function App() {
             {/* App shell routes */}
             <Route element={<AppShell />}>
               <Route path="/dashboard" element={<DashboardPage />} />
+              <Route path="/command-center" element={<CommandCenterPage />} />
               <Route path="/sales" element={<SalesPage />} />
               <Route path="/expenses" element={<ExpensesPage />} />
               <Route path="/inventory" element={<InventoryPage />} />

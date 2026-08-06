@@ -17,7 +17,6 @@ import {
   XCircle,
 } from "lucide-react";
 import { runPipeline, type PipelineProgress } from "../../lib/ai/pipeline";
-import { getAISettings } from "../../lib/ai/aiService";
 import Button from "../ui/Button";
 import type { PipelineExecution, AgentName, PipelineLogEntry } from "../../lib/ai/types";
 

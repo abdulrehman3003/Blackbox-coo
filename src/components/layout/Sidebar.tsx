@@ -15,12 +15,14 @@ import {
   FileText,
   Wallet,
   Settings,
+  Cpu,
 } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "../../hooks/useAuth";
 
 const mainNav = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/command-center", label: "Command Center", icon: Cpu },
   { to: "/sales", label: "Sales", icon: ShoppingCart },
   { to: "/expenses", label: "Expenses", icon: Wallet },
   { to: "/inventory", label: "Inventory", icon: Package },

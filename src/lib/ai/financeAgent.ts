@@ -73,7 +73,7 @@ export async function runFinanceAgent(companyId: string): Promise<{
           },
           executionMode,
           executionTimeMs: Math.round(performance.now() - startTime),
-          structuredData: structuredData as Record<string, unknown>,
+          structuredData: structuredData as unknown as Record<string, unknown>,
         };
       }
     }
@@ -85,7 +85,7 @@ export async function runFinanceAgent(companyId: string): Promise<{
       output: financeFallback(fallbackData),
       executionMode,
       executionTimeMs: Math.round(performance.now() - startTime),
-      structuredData: structuredData as Record<string, unknown>,
+      structuredData: structuredData as unknown as Record<string, unknown>,
     };
   } catch {
     return {

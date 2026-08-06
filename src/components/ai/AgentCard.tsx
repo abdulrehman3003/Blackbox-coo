@@ -4,7 +4,6 @@
 
 import {
   Play,
-  StopCircle,
   Clock,
   CheckCircle2,
   AlertCircle,
