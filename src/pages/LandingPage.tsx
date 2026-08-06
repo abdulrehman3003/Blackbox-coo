@@ -2,13 +2,14 @@ import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Sparkles, ArrowRight, CheckCircle2, BarChart3, LayoutDashboard,
-  FileText, Package, Users2, Upload, ChevronRight, Shield,
+  FileText, Package, Upload, ChevronRight, Shield,
   BrainCircuit, TrendingUp, Zap, GraduationCap, Building2,
   Menu, X, ChevronDown, Quote, Clock, Target, Star,
-  HelpCircle, Layers, MessageSquareText, Globe, CreditCard,
-  HardDrive, Bot, LineChart, Activity,
+  HelpCircle, Layers, MessageSquareText,
+  Bot, Activity,
 } from "lucide-react";
-import { SiTwitter, SiGithub, SiLinkedin } from "react-icons/si";
+import { SiX, SiGithub } from "react-icons/si";
+import { FaLinkedin } from "react-icons/fa6";
 import Button from "../components/ui/Button";
 
 // ─── Data ──────────────────────────────────────────────────────────────────────
@@ -237,6 +238,7 @@ export default function LandingPage() {
             <span className="text-xs font-medium text-accent hidden sm:inline">COO</span>
           </button>
 
+          {/* Desktop nav — landing sections */}
           <nav className="hidden md:flex items-center gap-1" aria-label="Landing page sections">
             {[
               { label: "Features", id: "features" },
@@ -251,6 +253,7 @@ export default function LandingPage() {
             ))}
           </nav>
 
+          {/* Desktop quick links + auth */}
           <div className="hidden md:flex items-center gap-2">
             <div className="flex items-center gap-1 mr-2">
               {QUICK_LINKS.slice(0, 4).map((link) => (
@@ -266,6 +269,7 @@ export default function LandingPage() {
             <Button variant="primary" size="sm" icon={Sparkles} onClick={() => navigate("/login")}>Get Started</Button>
           </div>
 
+          {/* Mobile hamburger */}
           <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             className="md:hidden p-2 text-text-secondary hover:text-text-primary cursor-pointer"
             aria-label={mobileMenuOpen ? "Close menu" : "Open menu"} aria-expanded={mobileMenuOpen}>
@@ -273,6 +277,7 @@ export default function LandingPage() {
           </button>
         </div>
 
+        {/* Mobile menu */}
         {mobileMenuOpen && (
           <div className="md:hidden border-t border-border/50 bg-bg/95 backdrop-blur-xl">
             <div className="px-6 py-4 space-y-4">
@@ -499,6 +504,7 @@ export default function LandingPage() {
             <p className="mt-4 text-base text-text-secondary">No hidden fees. No surprises. Upgrade when you need more.</p>
           </div>
 
+          {/* Toggle: Monthly / Annual */}
           <div className="flex items-center justify-center gap-4 mb-12">
             <span className={`text-sm transition-colors ${!annualBilling ? "text-text-primary font-medium" : "text-text-muted"}`}>Monthly</span>
             <button onClick={() => setAnnualBilling(!annualBilling)}
@@ -512,6 +518,7 @@ export default function LandingPage() {
             )}
           </div>
 
+          {/* Pricing cards */}
           <div className="grid sm:grid-cols-3 gap-4 sm:gap-6 max-w-5xl mx-auto">
             {PRICING_TIERS.map((tier) => (
               <div key={tier.name}
@@ -576,7 +583,7 @@ export default function LandingPage() {
           <div className="text-center max-w-2xl mx-auto mb-16">
             <SectionBadge icon={Quote} label="Testimonials" />
             <h2 className="text-3xl sm:text-4xl font-bold text-text-primary tracking-tight">
-              Trusted by founders{" "}<span className="text-accent">like you</span>
+              Trusted by founders <span className="text-accent">like you</span>
             </h2>
             <p className="mt-4 text-base text-text-secondary">
               See what business owners say about BlackBox COO.
@@ -609,7 +616,7 @@ export default function LandingPage() {
           <div className="text-center max-w-2xl mx-auto mb-16">
             <SectionBadge icon={HelpCircle} label="FAQ" />
             <h2 className="text-3xl sm:text-4xl font-bold text-text-primary tracking-tight">
-              Got questions?{" "}<span className="text-accent">We&apos;ve got answers</span>
+              Got questions? <span className="text-accent">We&apos;ve got answers</span>
             </h2>
           </div>
 
@@ -674,10 +681,10 @@ export default function LandingPage() {
                 Analyze your entire business with a team of specialized AI agents.
               </p>
               <div className="flex items-center gap-3 mt-5">
-                <button onClick={() => window.open("https://twitter.com", "_blank")}
+                <button onClick={() => window.open("https://x.com", "_blank")}
                   className="w-8 h-8 rounded-lg bg-surface border border-border flex items-center justify-center text-text-secondary hover:text-accent hover:border-accent/30 transition-all cursor-pointer"
-                  aria-label="Twitter">
-                  <SiTwitter size={14} />
+                  aria-label="X (Twitter)">
+                  <SiX size={14} />
                 </button>
                 <button onClick={() => window.open("https://github.com", "_blank")}
                   className="w-8 h-8 rounded-lg bg-surface border border-border flex items-center justify-center text-text-secondary hover:text-accent hover:border-accent/30 transition-all cursor-pointer"
@@ -687,7 +694,7 @@ export default function LandingPage() {
                 <button onClick={() => window.open("https://linkedin.com", "_blank")}
                   className="w-8 h-8 rounded-lg bg-surface border border-border flex items-center justify-center text-text-secondary hover:text-accent hover:border-accent/30 transition-all cursor-pointer"
                   aria-label="LinkedIn">
-                  <SiLinkedin size={14} />
+                  <FaLinkedin size={14} />
                 </button>
               </div>
             </div>

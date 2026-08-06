@@ -17,6 +17,9 @@ export interface Profile {
   role: string;
   company_id: string | null;
   avatar_url: string | null;
+  phone: string | null;
+  bio: string | null;
+  job_role: string | null;
 }
 
 export interface Company {
@@ -24,6 +27,9 @@ export interface Company {
   owner_id: string;
   name: string;
   industry: string | null;
+  website: string | null;
+  description: string | null;
+  size: string | null;
 }
 
 interface AuthState {
