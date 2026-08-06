@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { useLocation } from "react-router-dom";
 import { FileText, Sparkles, Download, Play, Trash2, ArrowRight, TrendingUp } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
@@ -19,7 +18,6 @@ interface SavedReport {
 
 export default function ReportsPage() {
   const { profile } = useAuth();
-  const location = useLocation();
   const companyId = profile?.company_id ?? "";
 
   const [reports, setReports] = useState<SavedReport[]>([]);
@@ -40,7 +38,7 @@ export default function ReportsPage() {
 
     const local = getLocalReports(companyId) as SavedReport[];
     
-    // Combine DB reports and local reports (deduplicate by id)
+    // Combine DB reports and local reports (deduplicate by id or title timestamp)
     const combinedMap = new Map<string, SavedReport>();
     [...dbReports, ...local].forEach((r) => {
       if (!combinedMap.has(r.id)) {
@@ -61,14 +59,6 @@ export default function ReportsPage() {
   useEffect(() => {
     loadReports();
   }, [companyId, loadReports]);
-
-  // Auto-run AI Executive Suite when navigating from file import / analysis modal
-  useEffect(() => {
-    if (location.state?.autoRun) {
-      window.history.replaceState({}, document.title);
-      run();
-    }
-  }, [location.state, run]);
 
   const onDelete = async (id: string) => {
     setDeleting(id);

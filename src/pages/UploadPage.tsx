@@ -11,13 +11,10 @@ import {
   parseAndSaveFile,
   deleteImportedFile,
   createSampleFile,
-  autoIngestFile,
 } from "../lib/fileStorage";
 import FileViewerModal from "../components/files/FileViewerModal";
 import FileAnalysisModal from "../components/files/FileAnalysisModal";
 import DataImportMappingModal from "../components/files/DataImportMappingModal";
-import { AnalysisRunner, useAnalysisRunner } from "../components/analysis";
-import ExecutiveReportView from "../components/reports/ExecutiveReportView";
 
 export default function UploadPage() {
   const { profile } = useAuth();
@@ -33,9 +30,6 @@ export default function UploadPage() {
   const [viewingFile, setViewingFile] = useState<ImportedFile | null>(null);
   const [analyzingFile, setAnalyzingFile] = useState<ImportedFile | null>(null);
   const [mappingFile, setMappingFile] = useState<ImportedFile | null>(null);
-
-  // In-place AI Runner on Upload Page
-  const { steps, running, error, report, progress, run, clearReport } = useAnalysisRunner(companyId);
 
   // Load files on mount & company change
   useEffect(() => {
@@ -99,11 +93,6 @@ export default function UploadPage() {
     showToast(`Loaded sample file "${sample.fileName}" with ${sample.rowCount} records.`);
   };
 
-  const handleRunDirectAnalysis = async (file: ImportedFile) => {
-    await autoIngestFile(file, companyId);
-    run();
-  };
-
   const formatFileSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -127,35 +116,6 @@ export default function UploadPage() {
           <button onClick={() => setToastMessage(null)} className="text-text-muted hover:text-text-primary">
             ✕
           </button>
-        </div>
-      )}
-
-      {/* ── Live Step-by-Step AI Analysis Runner Overlay on Upload Page ── */}
-      {running && (
-        <AnalysisRunner
-          steps={steps}
-          progress={progress}
-          running={running}
-          error={error}
-          onClose={clearReport}
-        />
-      )}
-
-      {/* ── Generated Executive Report Modal Overlay on Upload Page ── */}
-      {report && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center p-4 sm:p-8 overflow-y-auto bg-black/70 backdrop-blur-md animate-fade-in">
-          <div className="w-full max-w-4xl my-8 glass-card p-6 sm:p-8 animate-scale-up">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2">
-                <Sparkles size={18} className="text-accent" />
-                AI Executive Report — File Analysis
-              </h2>
-              <Button variant="secondary" size="sm" onClick={clearReport}>
-                Close
-              </Button>
-            </div>
-            <ExecutiveReportView report={report} onClose={clearReport} />
-          </div>
         </div>
       )}
 
@@ -385,7 +345,7 @@ export default function UploadPage() {
           file={analyzingFile}
           onClose={() => setAnalyzingFile(null)}
           onImportToDb={(f) => setMappingFile(f)}
-          onRunFullAnalysis={() => handleRunDirectAnalysis(analyzingFile)}
+          onRunFullAnalysis={() => navigate("/reports")}
         />
       )}
 
