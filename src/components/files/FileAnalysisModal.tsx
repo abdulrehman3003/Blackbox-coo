@@ -1,15 +1,18 @@
-import { useMemo } from "react";
-import { X, Sparkles, TrendingUp, CheckCircle, BarChart3, Database, FileText, ArrowRight } from "lucide-react";
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
+import { useState, useMemo } from "react";
+import { X, Sparkles, TrendingUp, CheckCircle, Database, FileText, ArrowRight, DollarSign, ShoppingCart, Package, Users } from "lucide-react";
 import type { ImportedFile } from "../../lib/fileStorage";
+import { autoIngestFile, importRowsToDatabase } from "../../lib/fileStorage";
 import Button from "../ui/Button";
 
 interface FileAnalysisModalProps {
   file: ImportedFile;
+  companyId?: string;
   onClose: () => void;
   onImportToDb: (file: ImportedFile) => void;
   onRunFullAnalysis?: () => void;
 }
+
+type AnalysisMode = "auto" | "sales" | "expenses" | "inventory" | "customers";
 
 interface MaxRecord {
   label: string;
@@ -22,31 +25,79 @@ export default function FileAnalysisModal({
   onImportToDb,
   onRunFullAnalysis,
 }: FileAnalysisModalProps) {
-  // Infer file category and generate intelligent summary metrics
+  // Mode selection state
+  const [mode, setMode] = useState<AnalysisMode>("auto");
+  const [analyzing, setAnalyzing] = useState(false);
+
+  // Ingest specific file data & run full workspace analysis directly in place
+  const handleRunFullAnalysis = async (targetMode?: AnalysisMode) => {
+    setAnalyzing(true);
+    const activeMode = targetMode || mode;
+    if (activeMode !== "auto") {
+      let targetTable: "sales" | "expenses" | "inventory" | "customers" = "sales";
+      if (activeMode === "expenses") targetTable = "expenses";
+      else if (activeMode === "inventory") targetTable = "inventory";
+      else if (activeMode === "customers") targetTable = "customers";
+
+      const mapping: Record<string, string> = {};
+      file.headers.forEach((h) => {
+        const hl = h.toLowerCase();
+        if (hl.includes("item") || hl.includes("name") || hl.includes("desc")) mapping["item_name"] = h;
+        if (hl.includes("price") || hl.includes("amount") || hl.includes("cost") || hl.includes("spent")) mapping["amount"] = h;
+        if (hl.includes("qty") || hl.includes("quantity") || hl.includes("stock") || hl.includes("visit")) mapping["quantity"] = h;
+        if (hl.includes("date") || hl.includes("time")) mapping["sold_at"] = h;
+      });
+      await importRowsToDatabase(file, targetTable, mapping, file.companyId);
+    } else {
+      await autoIngestFile(file, file.companyId);
+    }
+
+    setAnalyzing(false);
+    onClose();
+    if (onRunFullAnalysis) {
+      onRunFullAnalysis();
+    }
+  };
+
+  // Compute targeted analysis based on selected mode
   const analysis = useMemo(() => {
     const fn = file.fileName.toLowerCase();
     const headers = file.headers.map((h) => h.toLowerCase());
-    
-    let docType = "Business Data Record";
+
+    let detectedType = "Business Data Record";
     if (headers.some((h) => h.includes("sale") || h.includes("sold") || h.includes("customer")) || fn.includes("sales")) {
-      docType = "Sales & Revenue Ledger";
-    } else if (headers.some((h) => h.includes("expense") || h.includes("cost") || h.includes("spent")) || fn.includes("expense")) {
-      docType = "Operating Expenses Log";
+      detectedType = "Sales Ledger";
+    } else if (headers.some((h) => h.includes("expense") || h.includes("cost") || h.includes("vendor")) || fn.includes("expense")) {
+      detectedType = "Operating Expenses";
     } else if (headers.some((h) => h.includes("sku") || h.includes("stock") || h.includes("inventory")) || fn.includes("inventory")) {
-      docType = "Stock & Inventory Catalogue";
+      detectedType = "Inventory Stock";
+    } else if (headers.some((h) => h.includes("visit") || h.includes("mail") || h.includes("customer")) || fn.includes("customer")) {
+      detectedType = "Customer Directory";
     }
 
-    // Find primary numeric column (e.g. amount, quantity, unit_cost)
-    const numCol =
-      file.summaryStats.numericCols.find((c) =>
-        ["amount", "total", "price", "unit_cost", "quantity", "cost"].includes(c.toLowerCase())
-      ) || file.summaryStats.numericCols[0] || null;
+    const activeType = mode === "auto" ? detectedType : mode.toUpperCase();
 
-    // Find primary label column (e.g. item_name, description, name, sku)
+    // Identify best numeric column
+    const numCol =
+      file.summaryStats.numericCols.find((c) => {
+        const cl = c.toLowerCase();
+        if (mode === "sales") return cl.includes("amount") || cl.includes("total") || cl.includes("price");
+        if (mode === "expenses") return cl.includes("amount") || cl.includes("cost") || cl.includes("spent");
+        if (mode === "inventory") return cl.includes("quantity") || cl.includes("stock") || cl.includes("unit_cost");
+        if (mode === "customers") return cl.includes("visit") || cl.includes("spent") || cl.includes("order");
+        return true;
+      }) || file.summaryStats.numericCols[0] || null;
+
+    // Identify best label column
     const labelCol =
-      file.headers.find((h) =>
-        ["item_name", "description", "name", "category", "sku"].includes(h.toLowerCase())
-      ) || file.summaryStats.categoryCols[0] || file.headers[0] || "row";
+      file.headers.find((h) => {
+        const hl = h.toLowerCase();
+        if (mode === "sales") return hl.includes("item") || hl.includes("product") || hl.includes("name");
+        if (mode === "expenses") return hl.includes("desc") || hl.includes("vendor") || hl.includes("category");
+        if (mode === "inventory") return hl.includes("item") || hl.includes("sku") || hl.includes("name");
+        if (mode === "customers") return hl.includes("name") || hl.includes("customer") || hl.includes("email");
+        return false;
+      }) || file.summaryStats.categoryCols[0] || file.headers[0] || "Row";
 
     let totalVal = 0;
     let avgVal = 0;
@@ -69,44 +120,51 @@ export default function FileAnalysisModal({
       });
     }
 
-    // Prepare chart data (top 10 rows by numeric value)
-    const chartData = file.parsedData
-      .slice(0, 10)
-      .map((row, idx) => ({
-        name: String(row[labelCol] || `Row ${idx + 1}`).slice(0, 14),
-        value: numCol ? Number(row[numCol]) || 0 : idx + 1,
-      }));
-
     // AI Insights Generator
-    const insights = [
-      `Parsed ${file.rowCount} data entries across ${file.headers.length} structured attributes.`,
-    ];
-    if (numCol) {
-      insights.push(
-        `Calculated aggregate total of ${totalVal.toLocaleString(undefined, { maximumFractionDigits: 2 })} across attribute '${numCol}'.`
-      );
+    const insights: string[] = [];
+    if (mode === "sales" || (mode === "auto" && detectedType.includes("Sales"))) {
+      insights.push(`Analyzed ${file.rowCount} sales transaction rows.`);
+      if (numCol) insights.push(`Total Revenue parsed: $${totalVal.toLocaleString(undefined, { maximumFractionDigits: 2 })}.`);
       if (maxRecord) {
         const rec = maxRecord as MaxRecord;
-        insights.push(
-          `Highest recorded value is '${rec.label}' with ${rec.val.toLocaleString()}.`
-        );
+        insights.push(`Top performing sale item: '${rec.label}' ($${rec.val.toLocaleString()}).`);
       }
+    } else if (mode === "expenses" || (mode === "auto" && detectedType.includes("Expenses"))) {
+      insights.push(`Analyzed ${file.rowCount} expense ledger items.`);
+      if (numCol) insights.push(`Total Operating Spend parsed: $${totalVal.toLocaleString(undefined, { maximumFractionDigits: 2 })}.`);
+      if (maxRecord) {
+        const rec = maxRecord as MaxRecord;
+        insights.push(`Highest expense item: '${rec.label}' ($${rec.val.toLocaleString()}).`);
+      }
+    } else if (mode === "inventory" || (mode === "auto" && detectedType.includes("Inventory"))) {
+      insights.push(`Analyzed ${file.rowCount} inventory stock items.`);
+      if (numCol) insights.push(`Aggregate metric sum for attribute '${numCol}': ${totalVal.toLocaleString()}.`);
+      if (maxRecord) {
+        const rec = maxRecord as MaxRecord;
+        insights.push(`Highest stock count: '${rec.label}' (${rec.val.toLocaleString()} units).`);
+      }
+    } else if (mode === "customers" || (mode === "auto" && detectedType.includes("Customer"))) {
+      insights.push(`Analyzed ${file.rowCount} registered customer records.`);
+      if (numCol) insights.push(`Aggregate metric sum for attribute '${numCol}': ${totalVal.toLocaleString()}.`);
+      if (maxRecord) {
+        const rec = maxRecord as MaxRecord;
+        insights.push(`Top customer record: '${rec.label}' (${rec.val.toLocaleString()}).`);
+      }
+    } else {
+      insights.push(`Parsed ${file.rowCount} data entries across ${file.headers.length} structured attributes.`);
+      if (numCol) insights.push(`Calculated aggregate total of ${totalVal.toLocaleString()} for '${numCol}'.`);
     }
-    insights.push(
-      `File format verified clean with 0 missing structural headers. Ready for ingestion into live workspace.`
-    );
 
     return {
-      docType,
+      activeType,
       numCol,
       labelCol,
       totalVal,
       avgVal,
       maxRecord,
-      chartData,
       insights,
     };
-  }, [file]);
+  }, [file, mode]);
 
   return (
     <div
@@ -125,13 +183,13 @@ export default function FileAnalysisModal({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-lg font-semibold text-text-primary">AI File Analysis</h3>
+                <h3 className="text-lg font-semibold text-text-primary">File Data Analysis</h3>
                 <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-accent/10 text-accent border border-accent/20">
-                  {analysis.docType}
+                  {analysis.activeType}
                 </span>
               </div>
               <p className="text-xs text-text-muted mt-0.5">
-                Automated data breakdown for <span className="text-text-primary font-medium">{file.fileName}</span>
+                Targeted AI analysis for <span className="text-text-primary font-medium">{file.fileName}</span>
               </p>
             </div>
           </div>
@@ -142,6 +200,69 @@ export default function FileAnalysisModal({
           >
             <X size={18} />
           </button>
+        </div>
+
+        {/* Targeted Analysis Selector Bar */}
+        <div className="px-6 py-2.5 border-b border-border bg-surface/30 flex flex-wrap items-center justify-between gap-2 shrink-0">
+          <span className="text-xs font-semibold text-text-secondary uppercase">
+            Targeted Perspective Analysis:
+          </span>
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              onClick={() => setMode("auto")}
+              className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-lg transition-all ${
+                mode === "auto"
+                  ? "bg-accent-subtle border border-accent/40 text-accent"
+                  : "bg-surface border border-border text-text-secondary hover:text-text-primary hover:bg-surface-hover"
+              }`}
+            >
+              <Sparkles size={12} /> Auto Detect
+            </button>
+
+            <button
+              onClick={() => setMode("sales")}
+              className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-lg transition-all ${
+                mode === "sales"
+                  ? "bg-accent-subtle border border-accent/40 text-accent"
+                  : "bg-surface border border-border text-text-secondary hover:text-text-primary hover:bg-surface-hover"
+              }`}
+            >
+              <DollarSign size={12} /> Sales Analysis
+            </button>
+
+            <button
+              onClick={() => setMode("expenses")}
+              className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-lg transition-all ${
+                mode === "expenses"
+                  ? "bg-accent-subtle border border-accent/40 text-accent"
+                  : "bg-surface border border-border text-text-secondary hover:text-text-primary hover:bg-surface-hover"
+              }`}
+            >
+              <ShoppingCart size={12} /> Expenses Analysis
+            </button>
+
+            <button
+              onClick={() => setMode("inventory")}
+              className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-lg transition-all ${
+                mode === "inventory"
+                  ? "bg-accent-subtle border border-accent/40 text-accent"
+                  : "bg-surface border border-border text-text-secondary hover:text-text-primary hover:bg-surface-hover"
+              }`}
+            >
+              <Package size={12} /> Inventory Analysis
+            </button>
+
+            <button
+              onClick={() => setMode("customers")}
+              className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-lg transition-all ${
+                mode === "customers"
+                  ? "bg-accent-subtle border border-accent/40 text-accent"
+                  : "bg-surface border border-border text-text-secondary hover:text-text-primary hover:bg-surface-hover"
+              }`}
+            >
+              <Users size={12} /> Customers Analysis
+            </button>
+          </div>
         </div>
 
         {/* Content */}
@@ -186,47 +307,11 @@ export default function FileAnalysisModal({
             )}
           </div>
 
-          {/* Chart Visualization */}
-          {analysis.chartData.length > 0 && (
-            <div className="p-5 rounded-xl border border-border bg-surface/20">
-              <h4 className="text-sm font-semibold text-text-primary mb-4 flex items-center gap-2">
-                <BarChart3 size={16} className="text-accent" />
-                Data Distribution ({analysis.numCol || "Records"})
-              </h4>
-              <div className="h-56 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={analysis.chartData} margin={{ top: 10, right: 10, left: -20, bottom: 25 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                    <XAxis
-                      dataKey="name"
-                      stroke="#A1A1AA"
-                      fontSize={11}
-                      interval={0}
-                      angle={-20}
-                      textAnchor="end"
-                    />
-                    <YAxis stroke="#A1A1AA" fontSize={11} />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "#121215",
-                        borderColor: "rgba(255,255,255,0.15)",
-                        borderRadius: "8px",
-                        color: "#FFF",
-                        fontSize: "12px",
-                      }}
-                    />
-                    <Bar dataKey="value" fill="#9EFF00" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          )}
-
-          {/* AI Insights Block */}
+          {/* AI Key Insights Block */}
           <div className="p-5 rounded-xl border border-accent/20 bg-accent-subtle/30 space-y-3">
             <h4 className="text-sm font-semibold text-text-primary flex items-center gap-2">
               <Sparkles size={16} className="text-accent" />
-              AI Key Observations & Insights
+              AI Key Observations ({mode === "auto" ? "General" : mode.toUpperCase()})
             </h4>
             <ul className="space-y-2 text-xs text-text-secondary">
               {analysis.insights.map((insight, idx) => (
@@ -254,19 +339,15 @@ export default function FileAnalysisModal({
           </Button>
 
           <div className="flex gap-2">
-            {onRunFullAnalysis && (
-              <Button
-                variant="secondary"
-                size="sm"
-                icon={ArrowRight}
-                onClick={() => {
-                  onClose();
-                  onRunFullAnalysis();
-                }}
-              >
-                Run AI Executive Suite
-              </Button>
-            )}
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={ArrowRight}
+              disabled={analyzing}
+              onClick={() => handleRunFullAnalysis(mode)}
+            >
+              {analyzing ? "Ingesting Data…" : `Run Executive Suite (${mode.toUpperCase()})`}
+            </Button>
             <Button variant="secondary" size="sm" onClick={onClose}>
               Close
             </Button>

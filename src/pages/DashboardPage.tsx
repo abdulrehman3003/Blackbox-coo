@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
-import { Play, Sparkles, Database, ArrowRight, CheckCircle2 } from "lucide-react";
-import PageHeader from "../components/ui/PageHeader";
-import GlassCard from "../components/ui/GlassCard";
-import Button from "../components/ui/Button";
-import { AnalysisRunner, useAnalysisRunner, handleSeedData } from "../components/analysis";
-import ExecutiveReportView from "../components/reports/ExecutiveReportView";
+import { useNavigate } from "react-router-dom";
+import { Play, Sparkles, Database, ArrowRight, CheckCircle2, DollarSign, ShoppingCart, Package, Users, TrendingUp } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
+import PageHeader from "../components/ui/PageHeader";
+import Button from "../components/ui/Button";
+import ExecutiveReportView from "../components/reports/ExecutiveReportView";
+import { AnalysisRunner, useAnalysisRunner, handleSeedData } from "../components/analysis";
+import { getLocalReports } from "../components/analysis/useAnalysisRunner";
 
 interface SavedReport {
   id: string;
@@ -17,35 +18,50 @@ interface SavedReport {
 
 export default function DashboardPage() {
   const { profile } = useAuth();
+  const navigate = useNavigate();
   const companyId = profile?.company_id ?? "";
 
-  const { steps, running, error, report, progress, run, clearReport } = useAnalysisRunner(companyId);
-  const [seeding, setSeeding] = useState(false);
-  const [seedMessage, setSeedMessage] = useState<string | null>(null);
+  const [hasData, setHasData] = useState<boolean | null>(null);
   const [pastReports, setPastReports] = useState<SavedReport[]>([]);
   const [selectedReport, setSelectedReport] = useState<Record<string, unknown> | null>(null);
-  const [hasData, setHasData] = useState<boolean | null>(null);
+  const [seeding, setSeeding] = useState(false);
+  const [seedMessage, setSeedMessage] = useState<string | null>(null);
 
-  /* ── Check for existing data + load past reports ── */
   const loadOverview = useCallback(async () => {
-    if (!companyId) return;
-    const { count } = await supabase
-      .from("sales")
-      .select("*", { count: "exact", head: true })
-      .eq("company_id", companyId);
-    setHasData((count ?? 0) > 0);
+    let dbReports: SavedReport[] = [];
+    if (companyId) {
+      const { count } = await supabase
+        .from("sales")
+        .select("*", { count: "exact", head: true })
+        .eq("company_id", companyId);
+      setHasData((count ?? 0) > 0);
 
-    const { data } = await supabase
-      .from("reports")
-      .select("id, title, created_at, summary")
-      .eq("company_id", companyId)
-      .order("created_at", { ascending: false })
-      .limit(3);
-    setPastReports((data as SavedReport[]) ?? []);
+      const { data } = await supabase
+        .from("reports")
+        .select("id, title, created_at, summary")
+        .eq("company_id", companyId)
+        .order("created_at", { ascending: false })
+        .limit(5);
+      dbReports = (data as SavedReport[]) ?? [];
+    }
+
+    const local = getLocalReports(companyId) as SavedReport[];
+    const combinedMap = new Map<string, SavedReport>();
+    [...dbReports, ...local].forEach((r) => {
+      if (!combinedMap.has(r.id)) combinedMap.set(r.id, r);
+    });
+
+    const combined = Array.from(combinedMap.values()).sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+
+    setPastReports(combined.slice(0, 5));
   }, [companyId]);
 
+  const { steps, running, error, report, progress, run, clearReport } = useAnalysisRunner(companyId, loadOverview);
+
   useEffect(() => {
-    if (companyId) loadOverview();
+    loadOverview();
   }, [companyId, loadOverview]);
 
   /* ── Seed sample data ── */
@@ -63,15 +79,95 @@ export default function DashboardPage() {
     <div className="space-y-8">
       <PageHeader
         title="Dashboard"
-        subtitle="Your AI-powered COO — analysis, insights, and priorities"
+        subtitle="Your AI-powered COO — run complete business analysis across sales, expenses, inventory, and customers"
         actions={
-          <Button variant="primary" size="sm" icon={Play} onClick={run} disabled={running}>
-            {running ? "Analyzing…" : "Run AI Analysis"}
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="ghost" size="sm" icon={Database} onClick={onSeed} disabled={seeding}>
+              {seeding ? "Loading…" : "Load Sample Data"}
+            </Button>
+            <Button variant="primary" size="sm" icon={Play} onClick={run} disabled={running}>
+              {running ? "Analyzing…" : "Run Complete Business Analysis"}
+            </Button>
+          </div>
         }
       />
 
-      {/* ── Hero CTA — no data yet ── */}
+      {/* ── Quick Module Analysis Cards Bar ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <button
+          onClick={() => navigate("/sales")}
+          className="glass-card p-4 flex items-center justify-between text-left hover:border-accent/40 transition-all cursor-pointer group"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-accent-subtle border border-accent/20 flex items-center justify-center shrink-0">
+              <DollarSign size={20} className="text-accent" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-text-primary group-hover:text-accent transition-colors">
+                Sales Analysis
+              </p>
+              <p className="text-xs text-text-muted">Revenue & volume</p>
+            </div>
+          </div>
+          <ArrowRight size={16} className="text-text-muted group-hover:text-accent transition-colors" />
+        </button>
+
+        <button
+          onClick={() => navigate("/expenses")}
+          className="glass-card p-4 flex items-center justify-between text-left hover:border-accent/40 transition-all cursor-pointer group"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-warning/10 border border-warning/20 flex items-center justify-center shrink-0">
+              <ShoppingCart size={20} className="text-warning" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-text-primary group-hover:text-warning transition-colors">
+                Expenses Analysis
+              </p>
+              <p className="text-xs text-text-muted">Costs & vendors</p>
+            </div>
+          </div>
+          <ArrowRight size={16} className="text-text-muted group-hover:text-warning transition-colors" />
+        </button>
+
+        <button
+          onClick={() => navigate("/inventory")}
+          className="glass-card p-4 flex items-center justify-between text-left hover:border-accent/40 transition-all cursor-pointer group"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-success/10 border border-success/20 flex items-center justify-center shrink-0">
+              <Package size={20} className="text-success" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-text-primary group-hover:text-success transition-colors">
+                Inventory Analysis
+              </p>
+              <p className="text-xs text-text-muted">Stock & reorder levels</p>
+            </div>
+          </div>
+          <ArrowRight size={16} className="text-text-muted group-hover:text-success transition-colors" />
+        </button>
+
+        <button
+          onClick={() => navigate("/customers")}
+          className="glass-card p-4 flex items-center justify-between text-left hover:border-accent/40 transition-all cursor-pointer group"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-accent/15 border border-accent/30 flex items-center justify-center shrink-0">
+              <Users size={20} className="text-accent" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-text-primary group-hover:text-accent transition-colors">
+                Customers Analytics
+              </p>
+              <p className="text-xs text-text-muted">Visits & customer retention</p>
+            </div>
+          </div>
+          <ArrowRight size={16} className="text-text-muted group-hover:text-accent transition-colors" />
+        </button>
+      </div>
+
+      {/* ── Hero CTA — when no data yet ── */}
       {hasData === false && !report && (
         <div className="glass-card p-6 sm:p-8 relative overflow-hidden">
           <div className="absolute top-0 right-0 w-72 h-72 bg-accent-glow rounded-full blur-[100px] pointer-events-none" />
@@ -81,18 +177,16 @@ export default function DashboardPage() {
             </div>
             <div className="flex-1">
               <h2 className="text-xl font-semibold text-text-primary flex items-center gap-2">
-                Get your first AI analysis
+                Run Complete Business AI Analysis
                 <ArrowRight size={18} className="text-accent hidden sm:block" />
               </h2>
               <p className="mt-1.5 text-sm text-text-secondary max-w-xl leading-relaxed">
-                Add your sales, expenses, inventory, and customers — or load sample
-                data to see the full experience. The AI will generate an executive
-                report with risks, opportunities, and prioritized tasks.
+                Analyze all sales records, operating expenses, stock inventory, and customer visits simultaneously. The AI will synthesize an executive report with health scores, risk alerts, and tactical recommendations.
               </p>
             </div>
             <div className="flex flex-col gap-2 shrink-0">
               <Button variant="primary" size="sm" icon={Sparkles} onClick={run} disabled={running}>
-                Run AI Analysis
+                Run Complete Analysis
               </Button>
               <Button
                 variant="ghost"
@@ -119,20 +213,20 @@ export default function DashboardPage() {
         <AnalysisRunner steps={steps} progress={progress} running={running} error={error} onClose={() => {}} />
       )}
 
-      {/* ── Fresh report ── */}
+      {/* ── Fresh synthesized report ── */}
       {report && (
         <div className="animate-slide-up">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2">
               <Sparkles size={18} className="text-accent" />
-              Executive Report
+              Complete Business Executive Report
             </h2>
             <div className="flex gap-2">
               <Button variant="ghost" size="sm" onClick={clearReport}>
                 Dismiss
               </Button>
               <Button variant="primary" size="sm" icon={Play} onClick={run} disabled={running}>
-                Re-run
+                Re-run Analysis
               </Button>
             </div>
           </div>
@@ -140,35 +234,34 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* ── Default view when data exists but no fresh report ── */}
+      {/* ── Main View when data exists ── */}
       {hasData === true && !report && (
         <>
-          {/* Quick overview stats */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <GlassCard title="Data Ready" icon={Database} padding="md">
-              <p className="text-2xl font-bold text-text-primary">Sample data</p>
-              <p className="text-xs text-text-muted mt-1">Run analysis to see AI insights</p>
-            </GlassCard>
-            <GlassCard title="Reports" icon={Sparkles} padding="md">
-              <p className="text-2xl font-bold text-text-primary">{pastReports.length}</p>
-              <p className="text-xs text-text-muted mt-1">Generated so far</p>
-            </GlassCard>
-            <GlassCard title="AI Assistant" icon={Sparkles} padding="md">
-              <p className="text-2xl font-bold text-text-primary">Always on</p>
-              <p className="text-xs text-text-muted mt-1">Ask anything in the Assistant tab</p>
-            </GlassCard>
-            <GlassCard title="Next Step" icon={ArrowRight} padding="md">
-              <p className="text-sm font-medium text-accent">Run AI Analysis</p>
-              <p className="text-xs text-text-muted mt-1">Get prioritized recommendations</p>
-            </GlassCard>
+          {/* Executive Overview banner */}
+          <div className="glass-card p-6 flex flex-col sm:flex-row items-center justify-between gap-4 border border-accent/20 bg-accent-subtle/20">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-accent-subtle border border-accent/30 flex items-center justify-center shrink-0">
+                <TrendingUp size={24} className="text-accent" />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-text-primary">Complete Business Analysis Engine</h3>
+                <p className="text-xs text-text-secondary mt-0.5">
+                  Synthesize multi-agent insights across all workspace data (Sales, Expenses, Inventory & Customers)
+                </p>
+              </div>
+            </div>
+
+            <Button variant="primary" size="sm" icon={Play} onClick={run} disabled={running}>
+              {running ? "Analyzing…" : "Run Complete Business Analysis"}
+            </Button>
           </div>
 
-          {/* Recent reports */}
+          {/* Recent reports list */}
           {pastReports.length > 0 && (
             <div>
               <h2 className="text-lg font-semibold text-text-primary mb-3 flex items-center gap-2">
                 <Sparkles size={18} className="text-accent" />
-                Recent Reports
+                Recent Executive Reports ({pastReports.length})
               </h2>
               <div className="grid gap-3">
                 {pastReports.map((r) => (
@@ -191,20 +284,6 @@ export default function DashboardPage() {
               </div>
             </div>
           )}
-
-          <div className="glass-card p-6 text-center">
-            <Sparkles size={32} className="mx-auto text-accent mb-3" />
-            <h3 className="text-lg font-semibold text-text-primary">
-              Ready for the full breakdown?
-            </h3>
-            <p className="text-sm text-text-secondary mt-1 mb-4 max-w-md mx-auto">
-              Run the AI analysis to get your business health score, risks,
-              opportunities, and a prioritized action plan.
-            </p>
-            <Button variant="primary" size="sm" icon={Play} onClick={run} disabled={running}>
-              Run AI Analysis
-            </Button>
-          </div>
         </>
       )}
 
@@ -212,7 +291,7 @@ export default function DashboardPage() {
       {selectedReport && !report && (
         <div className="animate-slide-up">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-text-primary">Past Report</h2>
+            <h2 className="text-lg font-semibold text-text-primary">Past Executive Report</h2>
             <Button variant="ghost" size="sm" onClick={() => setSelectedReport(null)}>
               Close
             </Button>

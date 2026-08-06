@@ -278,3 +278,66 @@ export async function importRowsToDatabase(
     return { success: false, insertedCount: 0, error: err?.message || "Import failed" };
   }
 }
+
+export async function autoIngestFile(
+  file: ImportedFile,
+  companyId: string
+): Promise<{ success: boolean; targetTable: "sales" | "expenses" | "inventory" | "customers"; insertedCount: number }> {
+  const fn = file.fileName.toLowerCase();
+  const headers = file.headers.map((h) => h.toLowerCase());
+
+  let targetTable: "sales" | "expenses" | "inventory" | "customers" = "sales";
+  if (fn.includes("expense") || headers.some((h) => h.includes("spent") || h.includes("cost") || h.includes("vendor"))) {
+    targetTable = "expenses";
+  } else if (fn.includes("inventory") || headers.some((h) => h.includes("sku") || h.includes("stock"))) {
+    targetTable = "inventory";
+  } else if (fn.includes("customer") || headers.some((h) => h.includes("visit") || h.includes("customer"))) {
+    targetTable = "customers";
+  }
+
+  const FIELD_ALIASES: Record<string, string[]> = {
+    visit_count: ["visit", "visits", "visitcount", "numberofvisits", "totalvisits", "orders", "ordercount"],
+    total_spent: ["spent", "totalspent", "spend", "totalspend", "totalamount", "amountspent", "revenue"],
+    item_name: ["item", "itemname", "product", "productname", "title", "name"],
+    amount: ["amount", "price", "total", "cost", "sale", "value"],
+    quantity: ["quantity", "qty", "count", "units", "stock"],
+    unit_cost: ["unitcost", "cost", "price", "unitprice"],
+    sold_at: ["soldat", "date", "solddate", "transactiondate", "time", "createdat"],
+    incurred_at: ["incurredat", "date", "spentat", "expensedate", "time"],
+    description: ["description", "desc", "details", "item", "title", "notes"],
+    vendor: ["vendor", "supplier", "merchant", "payee"],
+    name: ["name", "customer", "customername", "client", "contact"],
+    email: ["email", "emailaddress", "mail"],
+    phone: ["phone", "phonenumber", "mobile", "tel", "contactnumber"],
+    sku: ["sku", "code", "barcode"],
+    category: ["category", "cat", "type", "group"],
+  };
+
+  const fieldKeys: Record<string, string[]> = {
+    sales: ["item_name", "category", "quantity", "amount", "sold_at"],
+    expenses: ["description", "category", "amount", "incurred_at", "vendor"],
+    inventory: ["item_name", "sku", "category", "quantity", "unit_cost"],
+    customers: ["name", "email", "phone", "visit_count", "total_spent", "notes"],
+  };
+
+  const schemaFields = fieldKeys[targetTable];
+  const mapping: Record<string, string> = {};
+
+  schemaFields.forEach((key) => {
+    const aliases = FIELD_ALIASES[key] || [key];
+    const matched = file.headers.find((h) => {
+      const hl = h.toLowerCase().replace(/[^a-z0-9]/g, "");
+      const fl = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+      if (hl === fl || hl.includes(fl) || fl.includes(hl)) return true;
+      return aliases.some((a) => hl === a || hl.includes(a));
+    });
+    if (matched) mapping[key] = matched;
+  });
+
+  const res = await importRowsToDatabase(file, targetTable, mapping, companyId);
+  return {
+    success: res.success,
+    targetTable,
+    insertedCount: res.insertedCount,
+  };
+}
