@@ -47,7 +47,7 @@ export default function AgentCard({
   const statusIcon = () => {
     switch (status) {
       case "idle":
-        return <div className="w-2 h-2 rounded-full bg-text-muted" />;
+        return <span className="block w-2 h-2 rounded-full bg-text-muted" />;
       case "thinking":
       case "running":
         return <RefreshCw size={14} className="animate-spin text-accent" />;
@@ -89,13 +89,13 @@ export default function AgentCard({
           <span className="text-lg">{visual.emoji}</span>
           <div>
             <h3 className="text-sm font-semibold text-text-primary">{visual.label}</h3>
-            <div className="text-[11px] text-text-muted flex items-center gap-1.5">
+            <p className="text-[11px] text-text-muted flex items-center gap-1.5">
               {statusIcon()}
               <span>{statusLabel()}</span>
               {result?.executionMode === "fallback" && (
                 <span className="text-warning ml-1">(fallback)</span>
               )}
-            </div>
+            </p>
           </div>
         </div>
 
