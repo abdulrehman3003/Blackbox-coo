@@ -270,11 +270,11 @@ Contributions are welcome! Please open an issue first to discuss what you'd like
 
 For questions, issues, or feature requests:
 - Open a GitHub issue
-- Email: support@blackboxcoo.app
-- Privacy inquiries: privacy@blackboxcoo.app
+- Email: ar30032006@gmail.com
+
 
 ---
 
 <p align="center">
-  <sub>Built with ❤️ — BlackBox COO</sub>
+  <sub>Built with ❤️</sub>
 </p>
