@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BlackBox COO — Pitch Deck</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reset.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css">
+  <style>
+    /* --- Shared Layout --- */
+    html, body, .reveal, .reveal * {
+      font-family: var(--r-main-font), 'Segoe UI', system-ui, -apple-system, sans-serif !important;
+    }
+    .reveal h1, .reveal h2, .reveal h3,
+    .reveal .section-divider h2 {
+      font-family: var(--r-heading-font), 'Segoe UI', system-ui, sans-serif !important;
+    }
+    .two-col {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 2.5em;
+      align-items: start; text-align: left;
+    }
+    .three-col {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5em;
+      text-align: center;
+    }
+    .metric-row {
+      display: flex; justify-content: center; gap: 3em;
+      text-align: center; margin: 1.5em 0;
+    }
+    .metric-row > div { flex: 1; }
+    .metric {
+      font-size: 4em; font-weight: 800; line-height: 1.1; display: block;
+    }
+    .metric-label {
+      font-size: 0.45em; text-transform: uppercase; letter-spacing: 0.1em;
+      opacity: 0.7; margin-top: 0.4em; display: block; font-weight: 500;
+    }
+    .card {
+      border-radius: 16px; padding: 1.5em 1.8em; text-align: left;
+    }
+    .card h3 { margin: 0 0 0.4em 0; font-size: 1.1em; }
+    .card p { font-size: 0.95em; line-height: 1.5; margin: 0; }
+    .card i, .card svg {
+      width: 36px; height: 36px; stroke-width: 1.5; margin-bottom: 0.6em;
+    }
+    .icon-feature {
+      display: flex; align-items: flex-start; gap: 1em;
+      margin: 0.7em 0; text-align: left;
+    }
+    .icon-feature i, .icon-feature svg {
+      flex-shrink: 0; width: 32px; height: 32px; stroke-width: 1.5;
+      margin-top: 0.1em;
+    }
+    .icon-feature div strong { display: block; margin-bottom: 0.15em; }
+    .steps {
+      counter-reset: step; list-style: none !important; padding: 0 !important;
+    }
+    .steps li {
+      counter-increment: step; display: flex; align-items: flex-start;
+      gap: 1em; margin: 0.7em 0; padding: 0;
+    }
+    .steps li::before {
+      content: counter(step); display: flex; align-items: center;
+      justify-content: center; min-width: 2em; height: 2em;
+      border-radius: 50%; font-weight: 700; font-size: 0.9em; flex-shrink: 0;
+    }
+    .subtitle {
+      font-size: 1.2em; opacity: 0.7; font-weight: 400; margin-top: 0.3em;
+    }
+    .reveal section.section-divider {
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; text-align: center;
+    }
+    .reveal section.section-divider h2 {
+      font-size: 3.5em; margin: 0;
+    }
+    .reveal section.section-divider h2::after { display: none; }
+
+    /* --- Custom Theme: BlackBox (App-Matching) --- */
+    :root {
+      --r-background-color: #000000;
+      --r-main-color: #E4E4E7;
+      --r-heading-color: #FFFFFF;
+      --r-link-color: #9EFF00;
+      --r-heading-font: 'Inter', sans-serif;
+      --r-main-font: 'Inter', sans-serif;
+      --r-heading-text-transform: none;
+      --r-heading-font-weight: 700;
+      --r-main-font-size: 22px;
+    }
+    .reveal {
+      background: #000000;
+    }
+    .reveal::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: -1;
+      background:
+        radial-gradient(ellipse 80% 50% at 50% 0%, rgba(158, 255, 0, 0.06), transparent),
+        radial-gradient(ellipse 60% 60% at 50% 100%, rgba(158, 255, 0, 0.03), transparent);
+    }
+    .reveal .slides section {
+      text-align: left;
+      color: #E4E4E7;
+    }
+    .reveal h1 {
+      font-size: 3.2em;
+      letter-spacing: -0.02em;
+      background: linear-gradient(135deg, #FFFFFF 0%, #9EFF00 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      text-shadow: none;
+    }
+    .reveal h2 {
+      font-size: 2.2em;
+      margin-bottom: 0.5em;
+      letter-spacing: -0.01em;
+      background: linear-gradient(135deg, #FFFFFF 0%, #9EFF00 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      text-shadow: none;
+    }
+    .reveal h2::after {
+      content: '';
+      display: block;
+      width: 48px;
+      height: 3px;
+      background: #9EFF00;
+      margin-top: 0.4em;
+      box-shadow: 0 0 12px rgba(158, 255, 0, 0.4);
+    }
+    .reveal ul { list-style: none; padding: 0; }
+    .reveal ul li { padding: 0.3em 0; padding-left: 1.2em; position: relative; }
+    .reveal ul li::before {
+      content: '\2192';
+      color: #9EFF00; position: absolute; left: 0; font-weight: 700;
+    }
+    .reveal .highlight {
+      color: #9EFF00; font-weight: 700;
+      text-shadow: 0 0 20px rgba(158, 255, 0, 0.3);
+    }
+    .reveal .metric { color: #9EFF00; text-shadow: 0 0 30px rgba(158, 255, 0, 0.3); }
+    .reveal .metric-label { color: #A1A1AA; }
+    .reveal .card {
+      background: rgba(255, 255, 255, 0.04);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: #E4E4E7;
+      transition: border-color 0.2s ease, background 0.2s ease;
+    }
+    .reveal .card:hover {
+      border-color: rgba(158, 255, 0, 0.25);
+      background: rgba(158, 255, 0, 0.04);
+    }
+    .reveal .card h3 { color: #FFFFFF; }
+    .reveal .card i, .reveal .card svg {
+      color: #9EFF00; filter: drop-shadow(0 0 8px rgba(158, 255, 0, 0.3));
+    }
+    .reveal i, .reveal svg {
+      color: #9EFF00; filter: drop-shadow(0 0 8px rgba(158, 255, 0, 0.3));
+    }
+    .reveal .icon-feature i, .reveal .icon-feature svg {
+      color: #9EFF00; filter: drop-shadow(0 0 8px rgba(158, 255, 0, 0.3));
+    }
+    .reveal .steps li::before {
+      background: rgba(158, 255, 0, 0.15);
+      color: #9EFF00;
+      border: 1px solid rgba(158, 255, 0, 0.25);
+      box-shadow: 0 0 12px rgba(158, 255, 0, 0.2);
+    }
+    .reveal h3 { color: #FFFFFF; }
+    .reveal p, .reveal li, .reveal strong, .reveal span { color: inherit; }
+    .reveal section.title-slide { text-align: center; background: transparent; }
+    .reveal section.title-slide h1 { font-size: 3.8em; margin-bottom: 0.15em; }
+    .reveal section.title-slide .tagline {
+      font-size: 1.4em; color: #A1A1AA; font-weight: 400; margin-bottom: 1em;
+    }
+    .reveal section.title-slide .built-on {
+      display: inline-block; background: rgba(158, 255, 0, 0.1);
+      border: 1px solid rgba(158, 255, 0, 0.2);
+      border-radius: 100px; padding: 0.4em 1.5em; font-size: 0.7em;
+      color: #9EFF00; letter-spacing: 0.05em; text-transform: uppercase;
+    }
+    .reveal section.section-divider { background: transparent; }
+    .reveal section.section-divider h2 {
+      background: linear-gradient(135deg, #9EFF00 0%, #FFFFFF 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .reveal .controls button { color: rgba(255,255,255,0.3); }
+    .reveal .controls button:hover { color: #9EFF00; }
+    .reveal .progress span { background: #9EFF00; }
+    .reveal .badge-pill {
+      display: inline-block; background: rgba(158, 255, 0, 0.1);
+      border: 1px solid rgba(158, 255, 0, 0.2);
+      border-radius: 100px; padding: 0.25em 1em; font-size: 0.65em;
+      color: #9EFF00; font-weight: 600; letter-spacing: 0.03em; margin-bottom: 0.5em;
+    }
+    .reveal .sub-metric { font-size: 0.85em; color: #A1A1AA; margin-top: 0.2em; }
+    .reveal .logo-text {
+      font-weight: 800; letter-spacing: -0.03em;
+      background: linear-gradient(135deg, #FFFFFF, #9EFF00);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+  </style>
+</head>
+<body>
+  <div class="reveal">
+    <div class="slides">
+
+      <!-- SLIDE 1: Title -->
+      <section class="title-slide">
+        <div class="badge-pill">Hackathon Submission</div>
+        <h1>BlackBox COO</h1>
+        <p class="tagline">AI-Powered Operations for Solo Founders</p>
+        <span class="built-on">Built entirely on NativelyAI</span>
+        <p style="margin-top: 2em; color: #52525B; font-size: 0.7em;">2025</p>
+      </section>
+
+      <!-- SLIDE 2: Problem -->
+      <section>
+        <h2>The Solo Founder&rsquo;s<br>Operational Crisis</h2>
+        <div class="metric-row">
+          <div>
+            <span class="metric">85%</span>
+            <span class="metric-label">Track ops manually</span>
+            <span class="sub-metric">Spreadsheets &amp; notebooks</span>
+          </div>
+          <div>
+            <span class="metric">67%</span>
+            <span class="metric-label">Spend 10+ hrs/week</span>
+            <span class="sub-metric">On operational admin</span>
+          </div>
+          <div>
+            <span class="metric">73%</span>
+            <span class="metric-label">Decide on gut feel</span>
+            <span class="sub-metric">No data-driven insights</span>
+          </div>
+        </div>
+        <p style="text-align: center; margin-top: 0.8em; color: #A1A1AA;">
+          <span class="highlight">90%</span> of solo founders can&rsquo;t afford a full-time COO
+        </p>
+      </section>
+
+      <!-- SLIDE 3: Solution -->
+      <section>
+        <h2>Meet Your Virtual COO</h2>
+        <p style="font-size: 1.3em; line-height: 1.6; max-width: 85%;">
+          BlackBox COO is a <span class="highlight">multi-agent AI operations dashboard</span>.
+          Upload business data &mdash; a fleet of <span class="highlight">6 specialized AI agents</span> analyze
+          sales, expenses, inventory, marketing, and operations in parallel.
+          The CEO agent synthesizes everything into an executive report &mdash; <strong>in seconds.</strong>
+        </p>
+        <div class="icon-feature" style="margin-top: 1.5em;">
+          <i data-lucide="bot"></i>
+          <div>
+            <strong>Not just a dashboard &mdash; a virtual COO</strong><br>
+            Other tools show data. BlackBox analyzes it, synthesizes it, and tells you what to do.
+          </div>
+        </div>
+      </section>
+
+      <!-- SLIDE 4: Market Size -->
+      <section>
+        <h2>Market Opportunity</h2>
+        <div class="metric-row">
+          <div>
+            <span class="metric">$12.8B</span>
+            <span class="metric-label">TAM</span>
+            <span class="sub-metric">Global small business ops software</span>
+          </div>
+          <div>
+            <span class="metric">$3.4B</span>
+            <span class="metric-label">SAM</span>
+            <span class="sub-metric">Solo founders &amp; micro-businesses</span>
+          </div>
+          <div>
+            <span class="metric">$420M</span>
+            <span class="metric-label">SOM</span>
+            <span class="sub-metric">AI-first ops tools (3-year)</span>
+          </div>
+        </div>
+        <p style="text-align: center; color: #52525B; font-size: 0.7em; margin-top: 1.5em;">
+          Source: Gartner, IBISWorld small business software market analysis
+        </p>
+      </section>
+
+      <!-- SLIDE 5: How It Works (section divider style) -->
+      <section class="section-divider" data-transition="zoom">
+        <h2>From Chaos to Clarity.</h2>
+      </section>
+
+      <!-- SLIDE 6: How It Works steps -->
+      <section>
+        <h2>How It Works</h2>
+        <ol class="steps">
+          <li>
+            <div>
+              <strong style="color: #9EFF00;">Add Your Data</strong><br>
+              Upload CSV/PDF, enter manually, or load sample data in one click
+            </div>
+          </li>
+          <li>
+            <div>
+              <strong style="color: #9EFF00;">AI Agents Analyze</strong><br>
+              6 agents process Finance, Sales, Inventory, Marketing &amp; Ops in parallel
+            </div>
+          </li>
+          <li>
+            <div>
+              <strong style="color: #9EFF00;">CEO Synthesizes</strong><br>
+              Unified report with health score, risks &amp; opportunities
+            </div>
+          </li>
+          <li>
+            <div>
+              <strong style="color: #9EFF00;">Actionable Insights</strong><br>
+              Prioritized tasks ready to execute
+            </div>
+          </li>
+        </ol>
+      </section>
+
+      <!-- SLIDE 7: Key Features -->
+      <section>
+        <h2>Core Capabilities</h2>
+        <div class="three-col">
+          <div class="card">
+            <i data-lucide="layers"></i>
+            <h3>Multi-Agent Pipeline</h3>
+            <p>6 specialized AI agents running in parallel &mdash; Finance, Sales, Inventory, Marketing, Ops, CEO</p>
+          </div>
+          <div class="card">
+            <i data-lucide="activity"></i>
+            <h3>Executive Dashboard</h3>
+            <p>Real-time health score, key metrics, trends, and risk flags at a glance</p>
+          </div>
+          <div class="card">
+            <i data-lucide="file-input"></i>
+            <h3>Smart Data Import</h3>
+            <p>Upload CSV or PDF &mdash; AI parsing extracts and structures your business data automatically</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- SLIDE 8: Built on NativelyAI -->
+      <section>
+        <h2>Built on <span class="logo-text">NativelyAI</span></h2>
+        <p style="color: #A1A1AA; margin-bottom: 1.2em;">A fully functional MVP &mdash; not a mockup</p>
+        <div class="two-col">
+          <div>
+            <div class="icon-feature">
+              <i data-lucide="zap"></i>
+              <div><strong>Built on NativelyAI</strong><br>Scaffolding to deploy on native.builder</div>
+            </div>
+            <div class="icon-feature">
+              <i data-lucide="cpu"></i>
+              <div><strong>6 AI Agents</strong><br>Orchestrated via native.builder agent system</div>
+            </div>
+            <div class="icon-feature">
+              <i data-lucide="database"></i>
+              <div><strong>Supabase Integrated</strong><br>Auth, database, Edge Functions, RLS</div>
+            </div>
+          </div>
+          <div>
+            <div class="icon-feature">
+              <i data-lucide="shield-off"></i>
+              <div><strong>Fallback Engine</strong><br>Works <em>without</em> any API key</div>
+            </div>
+            <div class="icon-feature">
+              <i data-lucide="file-text"></i>
+              <div><strong>20+ Pages</strong><br>Full app with reports, team, settings</div>
+            </div>
+            <div class="icon-feature">
+              <i data-lucide="globe"></i>
+              <div><strong>Deployed Publicly</strong><br>Live &amp; fully accessible</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SLIDE 9: Business Model -->
+      <section>
+        <h2>Business Model</h2>
+        <div class="three-col">
+          <div class="card" style="text-align: center;">
+            <i data-lucide="gift"></i>
+            <h3>Free</h3>
+            <p style="font-size: 2em; font-weight: 800; color: #FFFFFF; margin: 0.3em 0;">$0</p>
+            <p style="color: #A1A1AA;">Up to 500 records<br>Basic reports<br>Single user</p>
+          </div>
+          <div class="card" style="text-align: center; border-color: rgba(158, 255, 0, 0.3);">
+            <i data-lucide="sparkles"></i>
+            <h3>Pro</h3>
+            <p style="font-size: 2em; font-weight: 800; color: #9EFF00; margin: 0.3em 0;">$29</p>
+            <p style="color: #A1A1AA;">Unlimited records<br>5 team members<br>Advanced AI analysis</p>
+          </div>
+          <div class="card" style="text-align: center;">
+            <i data-lucide="building"></i>
+            <h3>Enterprise</h3>
+            <p style="font-size: 2em; font-weight: 800; color: #FFFFFF; margin: 0.3em 0;">Custom</p>
+            <p style="color: #A1A1AA;">Unlimited team<br>SSO &amp; custom tuning<br>Dedicated support</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- SLIDE 10: Competitive Landscape -->
+      <section>
+        <h2>Why BlackBox Wins</h2>
+        <div class="two-col">
+          <div>
+            <h3 style="font-size: 1.1em; margin-bottom: 0.8em;">The Old Way</h3>
+            <div class="icon-feature">
+              <i data-lucide="file-spreadsheet"></i>
+              <div><strong>Spreadsheets</strong><br>$0/month &mdash; but zero intelligence</div>
+            </div>
+            <div class="icon-feature">
+              <i data-lucide="dollar-sign"></i>
+              <div><strong>Enterprise SaaS</strong><br>$50-500+/month &mdash; built for teams</div>
+            </div>
+            <div class="icon-feature">
+              <i data-lucide="search-x"></i>
+              <div><strong>Generic BI Tools</strong><br>Show data. Never tell you what to do.</div>
+            </div>
+          </div>
+          <div>
+            <h3 style="font-size: 1.1em; margin-bottom: 0.8em; color: #9EFF00;">BlackBox COO</h3>
+            <div class="icon-feature">
+              <i data-lucide="bot"></i>
+              <div><strong>Multi-Agent AI</strong><br>6 agents analyzing every angle</div>
+            </div>
+            <div class="icon-feature">
+              <i data-lucide="trending-up"></i>
+              <div><strong>Synthesis, Not Data</strong><br>CEO agent gives risks + actions</div>
+            </div>
+            <div class="icon-feature">
+              <i data-lucide="wallet"></i>
+              <div><strong>Built for Solo Founders</strong><br>$0-29/month &mdash; COO-level intelligence</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SLIDE 11: Traction -->
+      <section>
+        <h2>What&rsquo;s Already Built</h2>
+        <div class="metric-row">
+          <div>
+            <span class="metric">20+</span>
+            <span class="metric-label">Production Pages</span>
+            <span class="sub-metric">Dashboard, reports, team, settings, integrations</span>
+          </div>
+          <div>
+            <span class="metric">6</span>
+            <span class="metric-label">AI Agents</span>
+            <span class="sub-metric">Parallel multi-agent pipeline</span>
+          </div>
+          <div>
+            <span class="metric">100%</span>
+            <span class="metric-label">On NativelyAI</span>
+            <span class="sub-metric">Built from scratch on native.builder</span>
+          </div>
+        </div>
+        <div class="icon-feature" style="justify-content: center; text-align: center; gap: 3em; flex-wrap: wrap;">
+          <div style="text-align: center;">
+            <i data-lucide="database" style="width: 28px; height: 28px; display: block; margin: 0 auto 0.3em;"></i>
+            <span style="display: block; color: #A1A1AA; font-size: 0.85em;">Supabase Auth &amp; RLS</span>
+          </div>
+          <div style="text-align: center;">
+            <i data-lucide="file-json" style="width: 28px; height: 28px; display: block; margin: 0 auto 0.3em;"></i>
+            <span style="display: block; color: #A1A1AA; font-size: 0.85em;">CSV &amp; PDF Uploads</span>
+          </div>
+          <div style="text-align: center;">
+            <i data-lucide="download" style="width: 28px; height: 28px; display: block; margin: 0 auto 0.3em;"></i>
+            <span style="display: block; color: #A1A1AA; font-size: 0.85em;">Export Reports</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- SLIDE 12: Team -->
+      <section class="section-divider" data-transition="zoom">
+        <h2>The Team.</h2>
+      </section>
+
+      <section>
+        <h2>Solo Founder</h2>
+        <div style="display: flex; align-items: flex-start; gap: 2em; margin-top: 1em;">
+          <div style="flex: 1;">
+            <div style="font-size: 4em; font-weight: 800; color: #9EFF00; margin-bottom: 0.2em;">1</div>
+            <h3 style="font-size: 1.4em;">Founder &amp; Full-Stack Developer</h3>
+            <p style="color: #A1A1AA;">
+              Built BlackBox COO on NativelyAI to solve their own operational chaos.
+            </p>
+            <div class="quote-block" style="font-size: 1em; margin-top: 1em;">
+              &ldquo;I built the tool I wished existed when I was running my first business alone.&rdquo;
+            </div>
+          </div>
+          <div style="flex: 1;">
+            <h3 style="font-size: 1.1em; margin-bottom: 0.8em;">Why This Team Wins</h3>
+            <div class="icon-feature">
+              <i data-lucide="code"></i>
+              <div><strong>Shipping Velocity</strong><br>20+ production pages, multi-agent pipeline, full auth</div>
+            </div>
+            <div class="icon-feature">
+              <i data-lucide="users"></i>
+              <div><strong>User Empathy</strong><br>Built by a solo founder, for solo founders</div>
+            </div>
+            <div class="icon-feature">
+              <i data-lucide="lightbulb"></i>
+              <div><strong>Full-Stack Spectrum</strong><br>AI agents, frontend, backend, infra &mdash; all delivered</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SLIDE 13: Call to Action -->
+      <section class="title-slide">
+        <div class="badge-pill">Try It Now</div>
+        <h1>BlackBox COO</h1>
+        <p class="tagline" style="font-size: 1.6em; margin: 0.5em 0 1.2em;">
+          A fully functional AI-powered operations dashboard.<br>
+          <span style="color: #FFFFFF; font-weight: 600;">This isn&rsquo;t a prototype. It&rsquo;s production-ready.</span>
+        </p>
+        <span class="built-on" style="font-size: 0.9em;">Built entirely on NativelyAI</span>
+        <p style="margin-top: 2em; color: #71717A; font-size: 0.8em;">
+          Try it live at: <span class="highlight">[your-deployed-url]</span>
+        </p>
+      </section>
+
+    </div>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script>
+    Reveal.initialize({
+      width: 960,
+      height: 540,
+      margin: 0.04,
+      minScale: 0.2,
+      maxScale: 3.0,
+      hash: true,
+      transition: 'fade',
+      transitionSpeed: 'default',
+      autoAnimateEasing: 'ease-out',
+      autoAnimateDuration: 0.8,
+      controls: true,
+      progress: true,
+      center: true,
+    });
+    lucide.createIcons();
+  </script>
+</body>
+</html>
