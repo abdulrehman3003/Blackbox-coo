@@ -19,7 +19,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { testGeminiConnection, invalidateSettingsCache, getPersonalApiKey } from "../lib/ai/aiService";
-import { GEMINI_MODELS } from "../lib/ai/types";
+import { AIML_MODELS, getModelLabel } from "../lib/ai/types";
 import Button from "../components/ui/Button";
 import PageHeader from "../components/ui/PageHeader";
 import GlassCard from "../components/ui/GlassCard";
@@ -32,7 +32,17 @@ export default function SettingsPage() {
   const { user, company } = useAuth();
 
   // Model settings
-  const [aiModel, setAiModel] = useState("gemini-3.5-flash");
+  const [aiModel, setAiModel] = useState(() => {
+    if (typeof window !== "undefined") {
+      const activeUserId = localStorage.getItem("active_user_id");
+      return (
+        (activeUserId && localStorage.getItem(`preferred_ai_model_${activeUserId}`)) ||
+        localStorage.getItem("preferred_ai_model") ||
+        "gemini-2.0-flash"
+      );
+    }
+    return "gemini-2.0-flash";
+  });
   const [temperature, setTemperature] = useState(DEFAULT_TEMP);
   const [topP, setTopP] = useState(DEFAULT_TOP_P);
   const [maxTokens, setMaxTokens] = useState(DEFAULT_MAX_TOKENS);
@@ -62,13 +72,45 @@ export default function SettingsPage() {
     error?: string;
   } | null>(null);
 
+  // Handle Model Change immediately
+  const handleModelSelect = (newModel: string) => {
+    setAiModel(newModel);
+    localStorage.setItem("preferred_ai_model", newModel);
+    if (user?.id) {
+      localStorage.setItem(`preferred_ai_model_${user.id}`, newModel);
+    }
+    invalidateSettingsCache();
+  };
+
   // Load settings on mount
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
       try {
-        // Load AI model settings
+        if (typeof window !== "undefined") {
+          const localModel =
+            (user?.id && localStorage.getItem(`preferred_ai_model_${user.id}`)) ||
+            localStorage.getItem("preferred_ai_model");
+          if (localModel && !cancelled) setAiModel(localModel);
+
+          const localTemp = localStorage.getItem("preferred_ai_temp");
+          if (localTemp && !cancelled) setTemperature(Number(localTemp));
+
+          const localTopP = localStorage.getItem("preferred_ai_top_p");
+          if (localTopP && !cancelled) setTopP(Number(localTopP));
+
+          const localMaxTokens = localStorage.getItem("preferred_ai_max_tokens");
+          if (localMaxTokens && !cancelled) setMaxTokens(Number(localMaxTokens));
+
+          const localEnableAi = localStorage.getItem("preferred_enable_ai");
+          if (localEnableAi !== null && !cancelled) setEnableAi(localEnableAi === "true");
+
+          const localEnableFallback = localStorage.getItem("preferred_enable_fallback");
+          if (localEnableFallback !== null && !cancelled) setEnableFallback(localEnableFallback === "true");
+        }
+
+        // Load AI model settings from Supabase if present
         if (company?.id) {
           const { data: settings } = await supabase
             .from("company_settings")
@@ -77,13 +119,18 @@ export default function SettingsPage() {
             .maybeSingle();
 
           if (!cancelled && settings) {
-            setAiModel(settings.ai_model ?? "gemini-3.5-flash");
-            setTemperature(Number(settings.temperature ?? DEFAULT_TEMP));
-            setTopP(Number(settings.top_p ?? DEFAULT_TOP_P));
-            setMaxTokens(Number(settings.max_output_tokens ?? DEFAULT_MAX_TOKENS));
-            setEnableAi(settings.enable_ai ?? true);
-            setEnableFallback(settings.enable_fallback ?? true);
-            setEnableStreaming(settings.enable_streaming ?? false);
+            const dbModel = settings.ai_model ?? aiModel;
+            setAiModel(dbModel);
+            localStorage.setItem("preferred_ai_model", dbModel);
+            if (user?.id) {
+              localStorage.setItem(`preferred_ai_model_${user.id}`, dbModel);
+            }
+            if (settings.temperature != null) setTemperature(Number(settings.temperature));
+            if (settings.top_p != null) setTopP(Number(settings.top_p));
+            if (settings.max_output_tokens != null) setMaxTokens(Number(settings.max_output_tokens));
+            if (settings.enable_ai != null) setEnableAi(settings.enable_ai);
+            if (settings.enable_fallback != null) setEnableFallback(settings.enable_fallback);
+            if (settings.enable_streaming != null) setEnableStreaming(settings.enable_streaming);
           }
         }
 
@@ -110,32 +157,49 @@ export default function SettingsPage() {
     setError(null);
 
     try {
-      if (company?.id) {
-        const settingsData = {
-          company_id: company.id,
-          ai_model: aiModel,
-          temperature,
-          top_p: topP,
-          max_output_tokens: maxTokens,
-          enable_streaming: enableStreaming,
-          enable_ai: enableAi,
-          enable_fallback: enableFallback,
-        };
-
-        const { error: upsertErr } = await supabase
-          .from("company_settings")
-          .upsert(settingsData, { onConflict: "company_id" });
-
-        if (upsertErr) throw upsertErr;
+      // 1. Save all AI settings parameters locally
+      localStorage.setItem("preferred_ai_model", aiModel);
+      localStorage.setItem("preferred_ai_temp", String(temperature));
+      localStorage.setItem("preferred_ai_top_p", String(topP));
+      localStorage.setItem("preferred_ai_max_tokens", String(maxTokens));
+      localStorage.setItem("preferred_enable_ai", String(enableAi));
+      localStorage.setItem("preferred_enable_fallback", String(enableFallback));
+      if (user?.id) {
+        localStorage.setItem(`preferred_ai_model_${user.id}`, aiModel);
       }
 
-      // Save user personal API key strictly scoped to user.id
+      // 2. Try saving to Supabase company_settings (non-fatal if DB is unconfigured or RLS restricted)
+      if (company?.id) {
+        try {
+          const settingsData = {
+            company_id: company.id,
+            ai_model: aiModel,
+            temperature,
+            top_p: topP,
+            max_output_tokens: maxTokens,
+            enable_streaming: enableStreaming,
+            enable_ai: enableAi,
+            enable_fallback: enableFallback,
+          };
+
+          const { error: upsertErr } = await supabase
+            .from("company_settings")
+            .upsert(settingsData, { onConflict: "company_id" });
+
+          if (upsertErr) {
+            console.warn("Supabase company_settings upsert warning:", upsertErr.message);
+          }
+        } catch (dbErr) {
+          console.warn("Non-fatal Supabase settings sync error:", dbErr);
+        }
+      }
+
+      // 3. Save user personal API key strictly scoped to user.id
       if (user?.id && apiKey.trim()) {
         const keyVal = apiKey.trim();
+        localStorage.setItem(`user_aiml_api_key_${user.id}`, keyVal);
         localStorage.setItem(`user_gemini_api_key_${user.id}`, keyVal);
         localStorage.setItem("active_user_id", user.id);
-        // Clear un-scoped legacy key to prevent leaks across accounts
-        localStorage.removeItem("local_gemini_api_key");
 
         try {
           await supabase.from("users").update({ gemini_api_key: keyVal }).eq("id", user.id);
@@ -161,15 +225,22 @@ export default function SettingsPage() {
     setTesting(true);
     setTestResult(null);
 
+    localStorage.setItem("preferred_ai_model", aiModel);
+    if (user?.id) {
+      localStorage.setItem(`preferred_ai_model_${user.id}`, aiModel);
+    }
+    invalidateSettingsCache();
+
     // If key is being typed right now, temporarily register for user
     if (user?.id && apiKey.trim()) {
+      localStorage.setItem(`user_aiml_api_key_${user.id}`, apiKey.trim());
       localStorage.setItem(`user_gemini_api_key_${user.id}`, apiKey.trim());
       localStorage.setItem("active_user_id", user.id);
       invalidateSettingsCache();
     }
 
     try {
-      const result = await testGeminiConnection(company?.id ?? "", user?.id);
+      const result = await testGeminiConnection(company?.id ?? "", user?.id, aiModel);
       setTestResult(result);
     } catch (err) {
       setTestResult({
@@ -183,7 +254,9 @@ export default function SettingsPage() {
 
   const handleClearApiKey = async () => {
     if (user?.id) {
+      localStorage.removeItem(`user_aiml_api_key_${user.id}`);
       localStorage.removeItem(`user_gemini_api_key_${user.id}`);
+      localStorage.removeItem("local_aiml_api_key");
       localStorage.removeItem("local_gemini_api_key");
       try {
         await supabase.from("users").update({ gemini_api_key: null }).eq("id", user.id);
@@ -214,7 +287,7 @@ export default function SettingsPage() {
       <PageHeader
         icon={SettingsIcon}
         title="AI Settings"
-        description="Configure your personal Gemini API key and AI execution settings."
+        description="Configure your personal AIML API key (https://aimlapi.com) and AI execution settings."
       />
 
       {/* Success banner */}
@@ -237,26 +310,26 @@ export default function SettingsPage() {
           <div className="flex items-center justify-between border-b border-card-border pb-4">
             <div className="flex items-center gap-2">
               <KeyRound size={18} className="text-accent" />
-              <h2 className="text-sm font-semibold text-text-primary">Personal Gemini API Key</h2>
+              <h2 className="text-sm font-semibold text-text-primary">Personal AIML API Key</h2>
             </div>
             <a
-              href="https://aistudio.google.com/app/apikey"
+              href="https://aimlapi.com"
               target="_blank"
               rel="noreferrer"
-              className="text-xs text-accent hover:underline flex items-center gap-1"
+              className="text-xs text-accent hover:underline flex items-center gap-1 font-medium"
             >
-              Get Free Key <ExternalLink size={12} />
+              Get AIML API Key <ExternalLink size={12} />
             </a>
           </div>
 
           <p className="text-xs text-text-muted leading-relaxed">
-            Your API key is private to your user account (<span className="text-text-primary font-mono">{user?.email}</span>) and is never shared with other users or team members.
+            Your API key is private to your user account (<span className="text-text-primary font-mono">{user?.email}</span>) and is used to call AIML API endpoints (<a href="https://docs.aimlapi.com/" target="_blank" rel="noreferrer" className="text-accent hover:underline">docs.aimlapi.com</a>).
           </p>
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label htmlFor="user-api-key" className="text-xs font-medium text-text-secondary">
-                Personal API Key
+                AIML API Key
               </label>
               {hasKey && (
                 <span className="text-[10px] text-success font-semibold px-2 py-0.5 rounded-full bg-success/10 border border-success/20 flex items-center gap-1">
@@ -271,7 +344,7 @@ export default function SettingsPage() {
                 type={showKey ? "text" : "password"}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                placeholder={hasKey ? "•••••••••••••••••••••••• (Key set)" : "AIzaSy..."}
+                placeholder={hasKey ? "•••••••••••••••••••••••• (Key set)" : "aiml-key-..."}
                 className="w-full px-3 py-2 pr-10 text-xs bg-surface border border-card-border rounded-xl text-text-primary placeholder:text-text-muted/50 focus:outline-none focus:border-accent font-mono"
               />
               <button
@@ -340,9 +413,14 @@ export default function SettingsPage() {
 
         {/* ── AI Model Configuration ── */}
         <GlassCard className="p-6 space-y-6">
-          <div className="flex items-center gap-2 border-b border-card-border pb-4">
-            <Sparkles size={18} className="text-accent" />
-            <h2 className="text-sm font-semibold text-text-primary">Model Configuration</h2>
+          <div className="flex items-center justify-between border-b border-card-border pb-4">
+            <div className="flex items-center gap-2">
+              <Sparkles size={18} className="text-accent" />
+              <h2 className="text-sm font-semibold text-text-primary">Model Configuration</h2>
+            </div>
+            <span className="text-[10px] text-accent font-semibold px-2 py-0.5 rounded-full bg-accent/10 border border-accent/20 flex items-center gap-1">
+              Active: {getModelLabel(aiModel)}
+            </span>
           </div>
 
           <div className="grid sm:grid-cols-2 gap-4">
@@ -352,10 +430,10 @@ export default function SettingsPage() {
               <select
                 id="ai-model"
                 value={aiModel}
-                onChange={(e) => setAiModel(e.target.value)}
-                className="w-full px-3 py-2 text-xs bg-surface border border-card-border rounded-xl text-text-primary focus:outline-none focus:border-accent"
+                onChange={(e) => handleModelSelect(e.target.value)}
+                className="w-full px-3 py-2 text-xs bg-surface border border-card-border rounded-xl text-text-primary focus:outline-none focus:border-accent cursor-pointer font-medium"
               >
-                {GEMINI_MODELS.map((m) => (
+                {AIML_MODELS.map((m) => (
                   <option key={m.id} value={m.id} className="bg-bg text-text-primary">
                     {m.label} — {m.desc}
                   </option>

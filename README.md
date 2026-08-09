@@ -169,29 +169,43 @@ src/
 
 ---
 
-## 🧠 AI Architecture
+## ⚙️ AI Agent Architecture
 
-### How the AI Pipeline Works
+### Pipeline Execution Flow
 
-1. **Data Ingestion** — Business data enters via CSV/PDF upload, manual entry, or sample seed data
-2. **Agent Execution** — Five specialized agents run in parallel (configurable):
-   - Each agent queries Supabase for its domain data
-   - Data is formatted into structured prompts
-   - If Gemini API is configured, AI-generated analysis is produced
-   - If AI is unavailable, a rule-based fallback engine generates realistic outputs
+```
+Data Source (Database / CSV)
+       │
+       ├──► Finance Agent     ┐
+       ├──► Sales Agent       │
+       ├──► Inventory Agent   ├─► AIML API (Gemini 2.0, GPT-4o, Claude 3.5, DeepSeek R1, Llama 3.3)
+       ├──► Marketing Agent   │
+       └──► Operations Agent  ┘
+               │
+               ▼
+        CEO Agent (Synthesizer)
+               │
+               ▼
+     Executive Report & Health Score
+```
+
+1. **Data Ingestion** — Data is gathered from Supabase or parsed from uploaded files.
+2. **Parallel Agent Runs** — Specialized agents execute analysis queries in parallel:
+   - If AIML API key is configured, AI-generated analysis is produced using your chosen model.
+   - If AI is unavailable, a rule-based fallback engine generates realistic outputs.
 3. **CEO Synthesis** — The CEO agent aggregates all five agent outputs into a unified executive report with:
    - Business health score (0-100)
    - Top risks with severity ratings
    - Growth opportunities with impact assessments
    - Prioritized tactical recommendations
    - Warnings and confidence levels
-4. **Presentation** — Results are displayed in the dashboard, command center, and reports page
+4. **Presentation** — Results are displayed in the dashboard, command center, and reports page.
 
 ### AI vs. Fallback Mode
 
 | Mode | When Used | Output |
 |------|-----------|--------|
-| **AI Mode** | Gemini API key is configured | LLM-powered insights with reasoning |
+| **AI Mode** | AIML API key configured in Settings | LLM-powered insights across Gemini, GPT-4o, Claude, DeepSeek & Llama |
 | **Fallback Mode** | No API key or API error | Rule-based analysis with statistical heuristics |
 
 ---

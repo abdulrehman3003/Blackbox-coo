@@ -115,14 +115,21 @@ export interface AISettings {
   has_api_key: boolean;
 }
 
-export const GEMINI_MODELS = [
-  { id: "gemini-3.5-flash", label: "Gemini 3.5 Flash", desc: "Ultra performance & high-speed reasoning" },
-  { id: "gemini-3.1-flash-lite", label: "Gemini 3.1 Flash Lite", desc: "Fastest & lowest token cost model" },
-  { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", desc: "Maximum reasoning capacity & complex operational strategy" },
-  { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", desc: "Balanced performance & fast execution" },
-  { id: "gemini-2.0-flash", label: "Gemini 2.0 Flash", desc: "Stable production model" },
-  { id: "gemini-1.5-flash", label: "Gemini 1.5 Flash", desc: "Legacy fast model" },
+export const AIML_MODELS = [
+  { id: "gemini-2.0-flash", label: "Gemini 2.0 Flash (Google)", desc: "Fast, reliable & high reasoning performance" },
+  { id: "gpt-4o", label: "GPT-4o (OpenAI)", desc: "Flagship OpenAI model for complex strategy" },
+  { id: "gpt-4o-mini", label: "GPT-4o Mini (OpenAI)", desc: "High speed & low cost model" },
+  { id: "claude-3-5-sonnet-20241022", label: "Claude 3.5 Sonnet (Anthropic)", desc: "Advanced operational strategy & analysis" },
+  { id: "deepseek-ai/deepseek-r1", label: "DeepSeek R1", desc: "Open-weights deep reasoning engine" },
+  { id: "meta-llama/llama-3.3-70b-instruct", label: "Llama 3.3 70B (Meta)", desc: "High capability open-source model" },
 ] as const;
+
+export const GEMINI_MODELS = AIML_MODELS;
+
+export function getModelLabel(modelId: string): string {
+  const found = AIML_MODELS.find((m) => m.id === modelId);
+  return found ? found.label : modelId;
+}
 
 /* ─── Reports (DB shape) ─── */
 
