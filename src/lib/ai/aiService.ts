@@ -27,13 +27,18 @@ export interface AIResponse {
   errorType?: string;
 }
 
-/** Helper to extract structured JSON output from Gemini response */
+/** Helper to extract structured JSON output from AI response */
 export function parseAIResponse<T>(res: AIResponse | string, fallback?: T): any {
   const text = typeof res === "string" ? res : res?.text;
   if (!text) return fallback;
   try {
-    const jsonStr = text.replace(/```json\s*/gi, "").replace(/```\s*$/g, "").trim();
-    const obj = JSON.parse(jsonStr);
+    let clean = text.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
+    const firstBrace = clean.indexOf("{");
+    const lastBrace = clean.lastIndexOf("}");
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      clean = clean.slice(firstBrace, lastBrace + 1);
+    }
+    const obj = JSON.parse(clean);
     if (obj && typeof obj === "object" && !("data" in obj)) {
       Object.defineProperty(obj, "data", {
         get() {
@@ -44,7 +49,8 @@ export function parseAIResponse<T>(res: AIResponse | string, fallback?: T): any 
       });
     }
     return obj;
-  } catch {
+  } catch (err) {
+    console.warn("[parseAIResponse] Failed to parse JSON response:", err, "Raw text:", text);
     return fallback;
   }
 }
@@ -55,6 +61,10 @@ export async function getPersonalApiKey(userId?: string): Promise<string | null>
   if (typeof window === "undefined") return null;
 
   let targetUserId = userId;
+
+  if (!targetUserId) {
+    targetUserId = localStorage.getItem("active_user_id") || undefined;
+  }
 
   if (!targetUserId) {
     try {
@@ -90,16 +100,19 @@ export async function getPersonalApiKey(userId?: string): Promise<string | null>
 
   // 2. Check active user session fallback
   const activeUserId = localStorage.getItem("active_user_id");
-  if (activeUserId) {
+  if (activeUserId && activeUserId !== targetUserId) {
     const key =
       localStorage.getItem(`user_aiml_api_key_${activeUserId}`) ||
       localStorage.getItem(`user_gemini_api_key_${activeUserId}`);
     if (key) return key;
   }
 
+  // 3. Check global local storage fallback keys
   return (
     localStorage.getItem("local_aiml_api_key") ||
-    localStorage.getItem("local_gemini_api_key")
+    localStorage.getItem("local_gemini_api_key") ||
+    localStorage.getItem("aiml_api_key") ||
+    localStorage.getItem("gemini_api_key")
   );
 }
 
@@ -167,14 +180,9 @@ export async function getAISettings(companyId: string, userId?: string): Promise
       data = res.data;
     }
 
-    const activeModel = data?.ai_model || preferredModel;
-    if (typeof window !== "undefined" && data?.ai_model) {
-      localStorage.setItem("preferred_ai_model", data.ai_model);
-      const activeUserId = userId || localStorage.getItem("active_user_id");
-      if (activeUserId) {
-        localStorage.setItem(`preferred_ai_model_${activeUserId}`, data.ai_model);
-      }
-    }
+    // User's explicitly chosen local model ALWAYS takes priority over database default
+    const activeModel = preferredModel || data?.ai_model || "gemini-2.0-flash";
+    const hasKey = Boolean(personalKey);
 
     const settings: AISettings = {
       ai_model: activeModel,
@@ -182,9 +190,9 @@ export async function getAISettings(companyId: string, userId?: string): Promise
       top_p: Number(data?.top_p ?? preferredTopP),
       max_output_tokens: Number(data?.max_output_tokens ?? preferredMaxTokens),
       enable_streaming: data?.enable_streaming ?? false,
-      enable_ai: data?.enable_ai ?? preferredEnableAi,
+      enable_ai: hasKey ? true : (data?.enable_ai ?? preferredEnableAi),
       enable_fallback: data?.enable_fallback ?? preferredEnableFallback,
-      has_api_key: Boolean(personalKey),
+      has_api_key: hasKey,
     };
 
     settingsCache = settings;

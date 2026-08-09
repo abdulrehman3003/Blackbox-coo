@@ -98,9 +98,11 @@ export function useAnalysisRunner(companyId: string, onComplete?: () => void) {
 
       setSteps((prev) => prev.map((s) => ({ ...s, status: "done" })));
 
-      const summaryReport = typeof pipelineResult.summary === "object"
-        ? pipelineResult.summary
-        : createFallbackExecutiveReport(pipelineResult.summary);
+      const summaryReport = pipelineResult.reportData || (
+        typeof pipelineResult.summary === "object"
+          ? pipelineResult.summary
+          : createFallbackExecutiveReport(pipelineResult.summary)
+      );
 
       setReport(summaryReport);
 

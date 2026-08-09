@@ -50,6 +50,18 @@ function formatReportDate(dateVal: any): string {
 function buildExecutiveReportFromDbRow(r: any): any {
   if (!r) return createFallbackExecutiveReport();
 
+  // If r.summary is stringified JSON, parse it first
+  if (typeof r.summary === "string" && r.summary.trim().startsWith("{")) {
+    try {
+      const parsed = JSON.parse(r.summary.trim());
+      if (typeof parsed === "object" && parsed !== null && (parsed.revenueSummary || parsed.businessScore || parsed.summary)) {
+        return parsed;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   // If summary is already an object with revenue/score details
   if (typeof r.summary === "object" && r.summary !== null && (r.summary.revenueSummary || r.summary.businessScore)) {
     return r.summary;
@@ -284,7 +296,7 @@ export default function ReportsPage() {
                 <span className={`px-2 py-0.5 text-[10px] font-semibold rounded-md ${
                   latest.execution_mode === "ai" ? "text-accent bg-accent/10" : "text-warning bg-warning/10"
                 }`}>
-                  {latest.execution_mode === "ai" ? "Google Gemini AI" : "Rule Fallback"}
+                  {latest.execution_mode === "ai" ? "AI Analysis" : "Rule Fallback"}
                 </span>
               )}
               <span className="text-xs text-text-muted">{formatReportDate(latest.created_at)}</span>

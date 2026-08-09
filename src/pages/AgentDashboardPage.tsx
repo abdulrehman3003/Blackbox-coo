@@ -56,15 +56,28 @@ const AGENT_DESCRIPTIONS: Record<AgentName, string> = {
   ceo: "Synthesizes all agent results into an executive report",
 };
 
-/** Utility to guarantee text format and prevent React object child errors */
+/** Utility to guarantee human-readable text format and prevent JSON object string leaks */
 function formatSummaryText(val: unknown): string {
   if (!val) return "Agent analysis report";
-  if (typeof val === "string") return val;
-  if (typeof val === "object") {
+  if (typeof val === "string") {
+    const trimmed = val.trim();
+    if (trimmed.startsWith("{")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (typeof parsed.summary === "string") return parsed.summary;
+        if (typeof parsed.detail === "string") return parsed.detail;
+        if (typeof parsed.description === "string") return parsed.description;
+      } catch {
+        // ignore
+      }
+    }
+    return val;
+  }
+  if (typeof val === "object" && val !== null) {
     const obj = val as Record<string, unknown>;
     if (typeof obj.summary === "string") return obj.summary;
-    if (typeof obj.description === "string") return obj.description;
     if (typeof obj.detail === "string") return obj.detail;
+    if (typeof obj.description === "string") return obj.description;
   }
   return "Agent report analysis";
 }

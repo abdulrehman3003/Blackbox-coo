@@ -140,7 +140,11 @@ export default function AgentCard({
 
           {result.output.summary && (
             <p className="text-xs text-text-secondary line-clamp-2 leading-relaxed">
-              {result.output.summary}
+              {typeof result.output.summary === "string"
+                ? result.output.summary
+                : typeof result.output.summary === "object" && result.output.summary !== null
+                ? (result.output.summary as any).summary || String(result.output.summary)
+                : String(result.output.summary)}
             </p>
           )}
 

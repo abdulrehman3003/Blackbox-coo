@@ -247,6 +247,39 @@ export function createFallbackExecutiveReport(summaryStr = "Executive Business A
 
 /* ─── Defensive Report Normalizer ─── */
 
+function cleanSummaryString(val: any): string {
+  if (!val) return "";
+  if (typeof val === "object" && val !== null) {
+    if (typeof val.summary === "string") return cleanSummaryString(val.summary);
+    if (typeof val.detail === "string") return cleanSummaryString(val.detail);
+    if (typeof val.description === "string") return cleanSummaryString(val.description);
+    return "";
+  }
+  if (typeof val === "string") {
+    let str = val.trim();
+    let passes = 0;
+    while (str.startsWith("{") && str.endsWith("}") && passes < 5) {
+      passes++;
+      try {
+        const parsed = JSON.parse(str);
+        if (typeof parsed.summary === "string") {
+          str = parsed.summary.trim();
+        } else if (typeof parsed.detail === "string") {
+          str = parsed.detail.trim();
+        } else if (typeof parsed.description === "string") {
+          str = parsed.description.trim();
+        } else {
+          break;
+        }
+      } catch {
+        break;
+      }
+    }
+    return str;
+  }
+  return String(val);
+}
+
 function normalizeReport(input: any): ExecutiveReport {
   const fallback = createFallbackExecutiveReport();
 
@@ -267,27 +300,56 @@ function normalizeReport(input: any): ExecutiveReport {
     return createFallbackExecutiveReport(String(raw));
   }
 
-  const score = typeof raw.businessScore === "number" ? raw.businessScore : typeof raw.score === "number" ? raw.score : 85;
-  const summaryStr = typeof raw.summary === "string" ? raw.summary : typeof raw.summary === "object" ? (raw.summary.summary || fallback.summary) : fallback.summary;
+  // Handle case where raw object contains a nested raw JSON string inside raw.summary
+  if (typeof raw.summary === "string" && raw.summary.trim().startsWith("{")) {
+    try {
+      const inner = JSON.parse(raw.summary.trim());
+      if (typeof inner === "object" && inner !== null) {
+        // Extract clean text before spreading so raw.summary JSON string doesn't overwrite it
+        const innerCleanSummary = cleanSummaryString(inner.summary);
+        raw = { ...raw, ...inner };
+        if (innerCleanSummary) {
+          raw.summary = innerCleanSummary;
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
 
-  let topRisks = Array.isArray(raw.topRisks) && raw.topRisks.length > 0
-    ? raw.topRisks.map((r: any) => ({
+  const score = typeof raw.businessScore === "number"
+    ? raw.businessScore
+    : typeof raw.score === "number"
+    ? raw.score
+    : 85;
+
+  const summaryStr = cleanSummaryString(raw.summary) || fallback.summary;
+
+  const rawRisks = Array.isArray(raw.topRisks) && raw.topRisks.length > 0 ? raw.topRisks : raw.risks;
+  let topRisks = Array.isArray(rawRisks) && rawRisks.length > 0
+    ? rawRisks.map((r: any) => ({
         title: typeof r === "string" ? r : r?.title || "Risk Item",
         severity: r?.severity || "medium",
         detail: typeof r === "string" ? r : r?.detail || "",
       }))
     : fallback.topRisks;
 
-  let topOpportunities = Array.isArray(raw.topOpportunities) && raw.topOpportunities.length > 0
-    ? raw.topOpportunities.map((o: any) => ({
+  const rawOpps = Array.isArray(raw.topOpportunities) && raw.topOpportunities.length > 0 ? raw.topOpportunities : raw.opportunities;
+  let topOpportunities = Array.isArray(rawOpps) && rawOpps.length > 0
+    ? rawOpps.map((o: any) => ({
         title: typeof o === "string" ? o : o?.title || "Growth Opportunity",
         impact: o?.impact || "high",
         detail: typeof o === "string" ? o : o?.detail || "",
       }))
     : fallback.topOpportunities;
 
-  let priorityTasks = Array.isArray(raw.priorityTasks) && raw.priorityTasks.length > 0
-    ? raw.priorityTasks.map((t: any) => ({
+  const rawTasks = Array.isArray(raw.priorityTasks) && raw.priorityTasks.length > 0
+    ? raw.priorityTasks
+    : Array.isArray(raw.recommendations) && raw.recommendations.length > 0
+    ? raw.recommendations
+    : [];
+  let priorityTasks = Array.isArray(rawTasks) && rawTasks.length > 0
+    ? rawTasks.map((t: any) => ({
         title: typeof t === "string" ? t : t?.title || "Priority Action",
         priority: t?.priority || "high",
         category: t?.category || "Operations",
@@ -311,20 +373,34 @@ function normalizeReport(input: any): ExecutiveReport {
     ? raw.salesAnalysis.atRiskCustomers.map((c: any) => ({ name: String(c.name || "Customer"), daysSinceLastVisit: Number(c.daysSinceLastVisit || 30), reason: String(c.reason || "Inactivity") }))
     : fallback.salesAnalysis.atRiskCustomers;
 
-  let lowStock = Array.isArray(raw.inventoryHealth?.lowStock) && raw.inventoryHealth.lowStock.length > 0
-    ? raw.inventoryHealth.lowStock.map((i: any) => ({ name: String(i.name || "Item"), quantity: Number(i.quantity || 0), reorderLevel: Number(i.reorderLevel || 10), suggestedReorder: Number(i.suggestedReorder || 20) }))
+  const rawLowStock = Array.isArray(raw.inventoryHealth?.lowStockItems) && raw.inventoryHealth.lowStockItems.length > 0
+    ? raw.inventoryHealth.lowStockItems
+    : raw.inventoryHealth?.lowStock;
+  let lowStock = Array.isArray(rawLowStock) && rawLowStock.length > 0
+    ? rawLowStock.map((i: any) => ({ name: String(i.name || "Item"), quantity: Number(i.quantity || 0), reorderLevel: Number(i.reorderLevel || 10), suggestedReorder: Number(i.suggestedReorder || 20) }))
     : fallback.inventoryHealth.lowStock;
 
-  let mktRecs = Array.isArray(raw.marketingRecommendations?.recommendations) && raw.marketingRecommendations.recommendations.length > 0
+  const rawMktRecs = Array.isArray(raw.marketingRecommendations?.recommendations) && raw.marketingRecommendations.recommendations.length > 0
     ? raw.marketingRecommendations.recommendations
+    : raw.marketingRecommendations?.campaignIdeas;
+  let mktRecs = Array.isArray(rawMktRecs) && rawMktRecs.length > 0
+    ? rawMktRecs
     : fallback.marketingRecommendations.recommendations;
 
-  let promoIdeas = Array.isArray(raw.marketingRecommendations?.promotionIdeas) && raw.marketingRecommendations.promotionIdeas.length > 0
+  const rawPromo = Array.isArray(raw.marketingRecommendations?.promotionIdeas) && raw.marketingRecommendations.promotionIdeas.length > 0
     ? raw.marketingRecommendations.promotionIdeas
+    : raw.marketingRecommendations?.promotions;
+  let promoIdeas = Array.isArray(rawPromo) && rawPromo.length > 0
+    ? rawPromo
     : fallback.marketingRecommendations.promotionIdeas;
 
-  let campaignSuggestions = Array.isArray(raw.marketingRecommendations?.campaignSuggestions) && raw.marketingRecommendations.campaignSuggestions.length > 0
+  const rawCampaigns = Array.isArray(raw.marketingRecommendations?.campaignSuggestions) && raw.marketingRecommendations.campaignSuggestions.length > 0
     ? raw.marketingRecommendations.campaignSuggestions
+    : Array.isArray(raw.marketingRecommendations?.emailCampaigns) && raw.marketingRecommendations.emailCampaigns.length > 0
+    ? raw.marketingRecommendations.emailCampaigns
+    : fallback.marketingRecommendations.campaignSuggestions;
+  let campaignSuggestions = Array.isArray(rawCampaigns) && rawCampaigns.length > 0
+    ? rawCampaigns
     : fallback.marketingRecommendations.campaignSuggestions;
 
   return {

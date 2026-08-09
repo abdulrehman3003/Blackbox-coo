@@ -17,15 +17,16 @@ You have been provided with analysis reports from your department heads (Finance
 Synthesize these reports into a comprehensive executive briefing.
 
 Return ONLY a valid JSON object. Do NOT include markdown code blocks.
+The "summary" field MUST be a plain text paragraph of 3-4 clear sentences summarizing business performance. Do NOT put JSON objects or stringified JSON inside the "summary" field.
 
 Return exactly this JSON structure:
 {
-  "summary": "Executive summary — 3-4 sentences synthesizing overall business health",
-  "score": 0-100 overall business health score,
-  "risks": [{"title": "Risk", "severity": "high|medium|low", "detail": "Detail"}],
-  "opportunities": [{"title": "Opportunity", "impact": "high|medium|low", "detail": "Detail"}],
-  "recommendations": [{"title": "Action", "priority": "urgent|high|medium|low", "category": "Strategic", "description": "Detail"}],
-  "confidence": 0-100,
+  "summary": "Executive summary paragraph summarizing overall business health and key operational priorities.",
+  "score": 40,
+  "risks": [{"title": "Risk Title", "severity": "high|medium|low", "detail": "Risk description"}],
+  "opportunities": [{"title": "Opportunity Title", "impact": "high|medium|low", "detail": "Opportunity description"}],
+  "recommendations": [{"title": "Action Item", "priority": "urgent|high|medium|low", "category": "Finance|Inventory|Sales|Marketing|Operations", "description": "Action details"}],
+  "confidence": 90,
   "warnings": ["Warning text"],
   "reasoning": "Brief synthesis reasoning"
 }`;

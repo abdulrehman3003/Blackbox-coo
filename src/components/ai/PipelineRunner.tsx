@@ -125,7 +125,7 @@ export default function PipelineRunner({ companyId, onComplete }: PipelineRunner
               <span className={`px-2 py-0.5 text-[10px] font-semibold rounded-md ${
                 execution.executionMode === "ai" ? "text-accent bg-accent/10" : "text-warning bg-warning/10"
               }`}>
-                {execution.executionMode === "ai" ? "Gemini AI" : "Hybrid Mode"}
+                {execution.executionMode === "ai" ? "AI Analysis" : "Hybrid Mode"}
               </span>
             </div>
 
@@ -140,7 +140,11 @@ export default function PipelineRunner({ companyId, onComplete }: PipelineRunner
           </div>
 
           <p className="text-xs text-text-secondary leading-relaxed border-t border-card-border pt-3">
-            {execution.summary}
+            {typeof execution.summary === "string"
+              ? execution.summary
+              : typeof execution.summary === "object" && execution.summary !== null
+              ? (execution.summary as any).summary || String(execution.summary)
+              : String(execution.summary)}
           </p>
 
           <div className="flex items-center justify-between pt-1">

@@ -119,12 +119,12 @@ export default function SettingsPage() {
             .maybeSingle();
 
           if (!cancelled && settings) {
-            const dbModel = settings.ai_model ?? aiModel;
-            setAiModel(dbModel);
-            localStorage.setItem("preferred_ai_model", dbModel);
-            if (user?.id) {
-              localStorage.setItem(`preferred_ai_model_${user.id}`, dbModel);
-            }
+            const localSavedModel =
+              (user?.id && localStorage.getItem(`preferred_ai_model_${user.id}`)) ||
+              localStorage.getItem("preferred_ai_model");
+
+            const activeModel = localSavedModel || settings.ai_model || "gemini-2.0-flash";
+            setAiModel(activeModel);
             if (settings.temperature != null) setTemperature(Number(settings.temperature));
             if (settings.top_p != null) setTopP(Number(settings.top_p));
             if (settings.max_output_tokens != null) setMaxTokens(Number(settings.max_output_tokens));
@@ -194,17 +194,25 @@ export default function SettingsPage() {
         }
       }
 
-      // 3. Save user personal API key strictly scoped to user.id
-      if (user?.id && apiKey.trim()) {
+      // 3. Save personal API key with global & per-user persistence
+      if (apiKey.trim()) {
         const keyVal = apiKey.trim();
-        localStorage.setItem(`user_aiml_api_key_${user.id}`, keyVal);
-        localStorage.setItem(`user_gemini_api_key_${user.id}`, keyVal);
-        localStorage.setItem("active_user_id", user.id);
+        if (user?.id) {
+          localStorage.setItem(`user_aiml_api_key_${user.id}`, keyVal);
+          localStorage.setItem(`user_gemini_api_key_${user.id}`, keyVal);
+          localStorage.setItem("active_user_id", user.id);
+        }
+        localStorage.setItem("local_aiml_api_key", keyVal);
+        localStorage.setItem("local_gemini_api_key", keyVal);
+        localStorage.setItem("aiml_api_key", keyVal);
+        localStorage.setItem("gemini_api_key", keyVal);
 
-        try {
-          await supabase.from("users").update({ gemini_api_key: keyVal }).eq("id", user.id);
-        } catch {
-          // non-fatal if column doesn't exist yet
+        if (user?.id) {
+          try {
+            await supabase.from("users").update({ gemini_api_key: keyVal }).eq("id", user.id);
+          } catch {
+            // non-fatal if column doesn't exist yet
+          }
         }
 
         setHasKey(true);
@@ -231,11 +239,18 @@ export default function SettingsPage() {
     }
     invalidateSettingsCache();
 
-    // If key is being typed right now, temporarily register for user
-    if (user?.id && apiKey.trim()) {
-      localStorage.setItem(`user_aiml_api_key_${user.id}`, apiKey.trim());
-      localStorage.setItem(`user_gemini_api_key_${user.id}`, apiKey.trim());
-      localStorage.setItem("active_user_id", user.id);
+    // If key is being typed right now, temporarily register key
+    if (apiKey.trim()) {
+      const keyVal = apiKey.trim();
+      if (user?.id) {
+        localStorage.setItem(`user_aiml_api_key_${user.id}`, keyVal);
+        localStorage.setItem(`user_gemini_api_key_${user.id}`, keyVal);
+        localStorage.setItem("active_user_id", user.id);
+      }
+      localStorage.setItem("local_aiml_api_key", keyVal);
+      localStorage.setItem("local_gemini_api_key", keyVal);
+      localStorage.setItem("aiml_api_key", keyVal);
+      localStorage.setItem("gemini_api_key", keyVal);
       invalidateSettingsCache();
     }
 
@@ -256,8 +271,13 @@ export default function SettingsPage() {
     if (user?.id) {
       localStorage.removeItem(`user_aiml_api_key_${user.id}`);
       localStorage.removeItem(`user_gemini_api_key_${user.id}`);
-      localStorage.removeItem("local_aiml_api_key");
-      localStorage.removeItem("local_gemini_api_key");
+    }
+    localStorage.removeItem("local_aiml_api_key");
+    localStorage.removeItem("local_gemini_api_key");
+    localStorage.removeItem("aiml_api_key");
+    localStorage.removeItem("gemini_api_key");
+
+    if (user?.id) {
       try {
         await supabase.from("users").update({ gemini_api_key: null }).eq("id", user.id);
       } catch {
@@ -517,7 +537,7 @@ export default function SettingsPage() {
             <label className="flex items-center justify-between p-3 rounded-xl bg-surface border border-card-border cursor-pointer">
               <div>
                 <span className="text-xs font-semibold text-text-primary block">Enable Live AI Calls</span>
-                <span className="text-[10px] text-text-muted">Use live Gemini models for business audits</span>
+                <span className="text-[10px] text-text-muted">Use live AI models for business audits</span>
               </div>
               <input
                 type="checkbox"

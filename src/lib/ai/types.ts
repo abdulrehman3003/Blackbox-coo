@@ -86,6 +86,7 @@ export interface PipelineResult {
   totalExecutionTimeMs: number;
   businessHealthScore: number;
   summary: any;
+  reportData?: any;
   ceoResult: AgentExecutionResult | null;
   agentResults: AgentExecutionResult[];
   executionLog: PipelineLogEntry[];

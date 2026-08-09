@@ -204,11 +204,11 @@ export default function FileAnalysisModal({
           </button>
         </div>
 
-        {/* Perspective Bar & Gemini Trigger */}
         <div className="px-6 py-3 border-b border-border bg-surface/30 flex flex-wrap items-center justify-between gap-3 shrink-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-semibold text-text-secondary uppercase mr-1">Perspective:</span>
             <button
+              type="button"
               onClick={() => {
                 setMode("auto");
                 handleRunGeminiAnalysis("auto");
@@ -223,6 +223,7 @@ export default function FileAnalysisModal({
             </button>
 
             <button
+              type="button"
               onClick={() => {
                 setMode("sales");
                 handleRunGeminiAnalysis("sales");
@@ -233,10 +234,11 @@ export default function FileAnalysisModal({
                   : "bg-surface border border-border text-text-secondary hover:text-text-primary hover:bg-surface-hover"
               }`}
             >
-              <DollarSign size={12} /> Sales
+              <DollarSign size={12} /> Sales Focus
             </button>
 
             <button
+              type="button"
               onClick={() => {
                 setMode("expenses");
                 handleRunGeminiAnalysis("expenses");
@@ -247,10 +249,11 @@ export default function FileAnalysisModal({
                   : "bg-surface border border-border text-text-secondary hover:text-text-primary hover:bg-surface-hover"
               }`}
             >
-              <ShoppingCart size={12} /> Expenses
+              <ShoppingCart size={12} /> Expense Focus
             </button>
 
             <button
+              type="button"
               onClick={() => {
                 setMode("inventory");
                 handleRunGeminiAnalysis("inventory");
@@ -261,10 +264,11 @@ export default function FileAnalysisModal({
                   : "bg-surface border border-border text-text-secondary hover:text-text-primary hover:bg-surface-hover"
               }`}
             >
-              <Package size={12} /> Inventory
+              <Package size={12} /> Inventory Focus
             </button>
 
             <button
+              type="button"
               onClick={() => {
                 setMode("customers");
                 handleRunGeminiAnalysis("customers");
@@ -275,24 +279,23 @@ export default function FileAnalysisModal({
                   : "bg-surface border border-border text-text-secondary hover:text-text-primary hover:bg-surface-hover"
               }`}
             >
-              <Users size={12} /> Customers
+              <Users size={12} /> Customer Intelligence
             </button>
           </div>
 
           <Button
+            type="button"
             variant="primary"
             size="sm"
-            icon={Play}
+            icon={Sparkles}
             loading={loadingGemini}
             onClick={() => handleRunGeminiAnalysis(mode)}
           >
-            {loadingGemini ? "Running Gemini Agent…" : "Run Gemini AI Analysis"}
+            {loadingGemini ? "Running AI Agent…" : "Run AI Analysis"}
           </Button>
         </div>
 
-        {/* Modal Scroll Content */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          {/* Key Metrics Row */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="p-4 rounded-xl border border-border bg-surface/30">
               <div className="flex items-center justify-between text-xs text-text-secondary">
@@ -336,7 +339,7 @@ export default function FileAnalysisModal({
           {loadingGemini ? (
             <div className="p-8 rounded-2xl border border-accent/20 bg-accent-subtle/20 text-center animate-pulse space-y-3">
               <Brain size={32} className="mx-auto text-accent animate-spin" />
-              <p className="text-sm font-semibold text-text-primary">Google Gemini AI is analyzing file contents & headers…</p>
+              <p className="text-sm font-semibold text-text-primary">AI is analyzing file contents & headers…</p>
               <p className="text-xs text-text-muted">Evaluating {file.rowCount} rows for risks, opportunities, and insights.</p>
             </div>
           ) : geminiResult ? (
@@ -346,11 +349,11 @@ export default function FileAnalysisModal({
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Sparkles size={18} className="text-accent" />
-                    <h4 className="text-base font-bold text-text-primary">Google Gemini Executive Summary</h4>
+                    <h4 className="text-base font-bold text-text-primary">AI Executive Summary</h4>
                   </div>
                   <span className="px-3 py-1 text-xs font-bold rounded-full bg-accent/15 text-accent border border-accent/30 flex items-center gap-1.5">
                     {geminiResult.executionMode === "ai" ? (
-                      <><Brain size={13} /> {geminiResult.modelUsed || "Gemini 3.5 Flash"}</>
+                      <><Brain size={13} /> {geminiResult.modelUsed || "AI Analysis"}</>
                     ) : (
                       <><Zap size={13} className="text-warning" /> Rule Engine Fallback</>
                     )}

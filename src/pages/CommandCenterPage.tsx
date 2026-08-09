@@ -19,8 +19,10 @@ import {
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
+import { getPersonalApiKey } from "../lib/ai/aiService";
 import PipelineRunner from "../components/ai/PipelineRunner";
 import AgentCard from "../components/ai/AgentCard";
+import ExecutiveReportView from "../components/reports/ExecutiveReportView";
 import PageHeader from "../components/ui/PageHeader";
 import { AGENT_VISUALS } from "../components/ai/AgentCard";
 import type {
@@ -32,8 +34,8 @@ import type {
 } from "../lib/ai/types";
 
 export default function AICommandCenter() {
-  const { profile } = useAuth();
-  const companyId = profile?.company_id ?? "";
+  const { profile, company } = useAuth();
+  const companyId = profile?.company_id || company?.id || localStorage.getItem("active_company_id") || "demo-company";
   const navigate = useNavigate();
 
   const [agentStates, setAgentStates] = useState<Record<AgentName, {
@@ -143,74 +145,105 @@ export default function AICommandCenter() {
   };
 
   const handleRunAgent = async (name: AgentName) => {
-    if (!companyId || pipelineRunning) return;
+    if (pipelineRunning) return;
 
     setAgentStates((prev) => ({
       ...prev,
       [name]: { ...prev[name], status: "running" },
     }));
 
-    // Import and run individual agent
-    let result: { output: { summary: string; score: number; risks: unknown[]; opportunities: unknown[]; recommendations: unknown[]; confidence: number; warnings: string[] }; executionMode: "ai" | "fallback"; executionTimeMs: number };
+    try {
+      // Import and run individual agent
+      let result: { output: { summary: string; score: number; risks: unknown[]; opportunities: unknown[]; recommendations: unknown[]; confidence: number; warnings: string[] }; executionMode: "ai" | "fallback"; executionTimeMs: number };
 
-    switch (name) {
-      case "finance": {
-        const { runFinanceAgent } = await import("../lib/ai/financeAgent");
-        result = await runFinanceAgent(companyId);
-        break;
-      }
-      case "sales": {
-        const { runSalesAgent } = await import("../lib/ai/salesAgent");
-        result = await runSalesAgent(companyId);
-        break;
-      }
-      case "inventory": {
-        const { runInventoryAgent } = await import("../lib/ai/inventoryAgent");
-        result = await runInventoryAgent(companyId);
-        break;
-      }
-      case "marketing": {
-        const { runMarketingAgent } = await import("../lib/ai/marketingAgent");
-        result = await runMarketingAgent(companyId);
-        break;
-      }
-      case "operations": {
-        const { runOperationsAgent } = await import("../lib/ai/operationsAgent");
-        result = await runOperationsAgent(companyId);
-        break;
-      }
-      default:
-        return;
-    }
+      switch (name) {
+        case "finance": {
+          const { runFinanceAgent } = await import("../lib/ai/financeAgent");
+          result = await runFinanceAgent(companyId);
+          break;
+        }
+        case "sales": {
+          const { runSalesAgent } = await import("../lib/ai/salesAgent");
+          result = await runSalesAgent(companyId);
+          break;
+        }
+        case "inventory": {
+          const { runInventoryAgent } = await import("../lib/ai/inventoryAgent");
+          result = await runInventoryAgent(companyId);
+          break;
+        }
+        case "marketing": {
+          const { runMarketingAgent } = await import("../lib/ai/marketingAgent");
+          result = await runMarketingAgent(companyId);
+          break;
+        }
+        case "operations": {
+          const { runOperationsAgent } = await import("../lib/ai/operationsAgent");
+          result = await runOperationsAgent(companyId);
+          break;
+        }
+        case "ceo": {
+          const { runCEOAgent } = await import("../lib/ai/ceoAgent");
+          const previousOutputs = Object.entries(agentStates)
+            .filter(([k, v]) => k !== "ceo" && v.result?.output)
+            .map(([k, v]) => ({ name: k, output: v.result!.output }));
 
-    const executionResult: AgentExecutionResult = {
-      agentName: name,
-      agentLabel: AGENT_VISUALS[name].label,
-      status: "completed",
-      executionMode: result.executionMode,
-      confidence: result.output.confidence,
-      executionTimeMs: result.executionTimeMs,
-      output: {
-        summary: result.output.summary,
-        score: result.output.score,
-        risks: result.output.risks as AgentExecutionResult["output"]["risks"],
-        opportunities: result.output.opportunities as AgentExecutionResult["output"]["opportunities"],
-        recommendations: result.output.recommendations as AgentExecutionResult["output"]["recommendations"],
-        confidence: result.output.confidence,
-        warnings: result.output.warnings,
-      },
-      startedAt: new Date().toISOString(),
-      completedAt: new Date().toISOString(),
-    };
+          result = await runCEOAgent(companyId, previousOutputs, []);
+          break;
+        }
+        default:
+          return;
+      }
 
-    setAgentStates((prev) => ({
-      ...prev,
-      [name]: {
+      const executionResult: AgentExecutionResult = {
+        agentName: name,
+        agentLabel: AGENT_VISUALS[name].label,
         status: "completed",
-        result: executionResult,
-        lastRun: new Date().toISOString(),
-      },
-    }));
+        executionMode: result.executionMode,
+        confidence: result.output.confidence,
+        executionTimeMs: result.executionTimeMs,
+        output: {
+          summary: result.output.summary,
+          score: result.output.score,
+          risks: result.output.risks as AgentExecutionResult["output"]["risks"],
+          opportunities: result.output.opportunities as AgentExecutionResult["output"]["opportunities"],
+          recommendations: result.output.recommendations as AgentExecutionResult["output"]["recommendations"],
+          confidence: result.output.confidence,
+          warnings: result.output.warnings,
+        },
+        startedAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+      };
+
+      setAgentStates((prev) => ({
+        ...prev,
+        [name]: {
+          status: "completed",
+          result: executionResult,
+          lastRun: new Date().toISOString(),
+        },
+      }));
+    } catch (err) {
+      setAgentStates((prev) => ({
+        ...prev,
+        [name]: {
+          ...prev[name],
+          status: "failed",
+          result: {
+            agentName: name,
+            agentLabel: AGENT_VISUALS[name]?.label || name,
+            status: "failed",
+            executionMode: "fallback",
+            confidence: 0,
+            executionTimeMs: 0,
+            output: { summary: "Execution failed", score: 0, risks: [], opportunities: [], recommendations: [], confidence: 0, warnings: [] },
+            startedAt: new Date().toISOString(),
+            completedAt: new Date().toISOString(),
+            error: err instanceof Error ? err.message : "Execution error",
+          },
+        },
+      }));
+    }
   };
 
   const handleAgentHistory = (name: AgentName) => {
@@ -219,11 +252,17 @@ export default function AICommandCenter() {
 
   const allAgents: AgentName[] = ["finance", "sales", "inventory", "marketing", "operations", "ceo"];
 
+  const [hasApiKey, setHasApiKey] = useState<boolean>(true);
+
+  useEffect(() => {
+    getPersonalApiKey().then((key) => setHasApiKey(Boolean(key)));
+  }, []);
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="AI Command Center"
-        description="Multi-agent business analysis powered by Gemini AI"
+        description="Multi-agent business analysis powered by advanced AI models"
         icon={Cpu}
         actions={
           <button
@@ -235,6 +274,26 @@ export default function AICommandCenter() {
           </button>
         }
       />
+
+      {!hasApiKey && (
+        <div className="p-4 rounded-xl bg-warning/10 border border-warning/30 flex items-center justify-between gap-4 text-warning animate-slide-up">
+          <div className="flex items-center gap-3">
+            <Zap size={20} className="shrink-0 text-warning" />
+            <div>
+              <p className="text-sm font-semibold">No AIML API Key Configured</p>
+              <p className="text-xs text-text-secondary">
+                Agents are running in <strong>Rule Fallback Mode</strong>. Enter your AIML API Key in Settings to enable live AI multi-model analysis.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => navigate("/settings")}
+            className="px-3.5 py-1.5 rounded-lg bg-warning text-bg text-xs font-bold shrink-0 hover:bg-warning/90 transition-all cursor-pointer"
+          >
+            Configure Key →
+          </button>
+        </div>
+      )}
 
       {/* Pipeline execution */}
       <div className="glass-panel p-5 border border-accent/20">
@@ -340,9 +399,9 @@ export default function AICommandCenter() {
             </div>
           </div>
 
-          {latestReport.summary && (
-            <p className="text-sm text-text-secondary leading-relaxed">{latestReport.summary}</p>
-          )}
+          <div className="pt-2 border-t border-card-border">
+            <ExecutiveReportView report={latestReport.summary || latestReport} />
+          </div>
         </div>
       )}
 
