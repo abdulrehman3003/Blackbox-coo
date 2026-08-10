@@ -87,9 +87,7 @@ export default function LoginPage() {
           className="mx-auto flex items-center gap-2.5 mb-8 cursor-pointer"
           aria-label="Back to home"
         >
-          <div className="w-10 h-10 rounded-xl bg-accent flex items-center justify-center">
-            <span className="text-black font-bold text-lg">B</span>
-          </div>
+          <img src="/logo.png" alt="BlackBox COO Logo" className="h-14 sm:h-16 w-auto object-contain" />
           <span className="font-semibold text-lg text-text-primary">BlackBox</span>
           <span className="text-xs font-medium text-accent mt-1">COO</span>
         </button>

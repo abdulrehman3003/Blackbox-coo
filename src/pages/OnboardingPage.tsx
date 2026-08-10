@@ -306,9 +306,7 @@ export default function OnboardingPage() {
           className="mx-auto flex items-center gap-2.5 mb-6 cursor-pointer group"
           aria-label="Back to home"
         >
-          <div className="w-10 h-10 rounded-xl bg-accent flex items-center justify-center group-hover:shadow-[0_0_20px_rgba(158,255,0,0.3)] transition-shadow duration-300">
-            <span className="text-black font-bold text-lg">B</span>
-          </div>
+          <img src="/logo.png" alt="BlackBox COO Logo" className="h-14 sm:h-16 w-auto object-contain group-hover:shadow-[0_0_20px_rgba(158,255,0,0.3)] transition-shadow duration-300" />
           <span className="font-semibold text-lg text-text-primary">BlackBox</span>
           <span className="text-xs font-medium text-accent mt-1">COO</span>
         </button>

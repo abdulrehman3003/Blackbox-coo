@@ -15,9 +15,7 @@ export default function PrivacyPage() {
             className="flex items-center gap-2.5 cursor-pointer"
             aria-label="Back to home"
           >
-            <div className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center">
-              <span className="text-black font-bold text-sm">B</span>
-            </div>
+            <img src="/logo.png" alt="BlackBox COO Logo" className="h-10 sm:h-12 w-auto object-contain shrink-0" />
             <span className="font-semibold text-sm text-text-primary hidden sm:inline">BlackBox</span>
             <span className="text-xs font-medium text-accent hidden sm:inline">COO</span>
           </button>

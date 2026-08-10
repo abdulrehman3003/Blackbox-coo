@@ -76,9 +76,7 @@ export default function Sidebar() {
     <nav className="flex flex-col h-full" aria-label="Main navigation">
       {/* Logo */}
       <div className="flex items-center gap-2.5 px-5 h-16 shrink-0 border-b border-border">
-        <div className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center">
-          <span className="text-black font-bold text-sm">B</span>
-        </div>
+        <img src="/logo.png" alt="BlackBox COO Logo" className="h-10 w-auto object-contain shrink-0" />
         <span className="font-semibold text-sm text-text-primary tracking-tight">
           BlackBox
         </span>

@@ -230,9 +230,7 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto flex items-center justify-between px-6 py-3 sm:px-10">
           <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
             className="flex items-center gap-2.5 cursor-pointer shrink-0" aria-label="Scroll to top">
-            <div className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center">
-              <span className="text-black font-bold text-sm">B</span>
-            </div>
+            <img src="/logo.png" alt="BlackBox COO Logo" className="h-10 sm:h-12 w-auto object-contain shrink-0" />
             <span className="font-semibold text-sm text-text-primary hidden sm:inline">BlackBox</span>
             <span className="text-xs font-medium text-accent hidden sm:inline">COO</span>
           </button>
@@ -669,9 +667,7 @@ export default function LandingPage() {
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-10">
             <div className="sm:col-span-2 lg:col-span-2">
               <div className="flex items-center gap-2.5 mb-4">
-                <div className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center">
-                  <span className="text-black font-bold text-sm">B</span>
-                </div>
+                <img src="/logo.png" alt="BlackBox COO Logo" className="h-10 sm:h-12 w-auto object-contain shrink-0" />
                 <span className="font-semibold text-sm text-text-primary">BlackBox</span>
                 <span className="text-xs font-medium text-accent">COO</span>
               </div>
