@@ -459,7 +459,7 @@ export default function LandingPage() {
                 <div className="w-3 h-3 rounded-full bg-warning/80" />
                 <div className="w-3 h-3 rounded-full bg-success/80" />
                 <span className="ml-2 text-xs font-mono text-text-muted hidden sm:inline-block">
-                  blackbox-coo-demo.mp4
+                  blackbox-coo-demo — youtube
                 </span>
               </div>
               <div className="flex items-center gap-2">
@@ -470,49 +470,15 @@ export default function LandingPage() {
               </div>
             </div>
 
-            {/* Video Player Container */}
-            <div className="relative aspect-video bg-black/90 flex items-center justify-center">
-              {!videoError ? (
-                <video
-                  controls
-                  autoPlay
-                  muted
-                  loop
-                  playsInline
-                  preload="auto"
-                  onError={() => setVideoError(true)}
-                  className="w-full h-full object-contain shadow-2xl"
-                >
-                  <source src={demoVideoUrl} type="video/mp4" />
-                  <source src="./demo.mp4" type="video/mp4" />
-                  <source src="/demo.mp4" type="video/mp4" />
-                  Your browser does not support the HTML5 video tag.
-                </video>
-              ) : (
-                <div className="p-8 text-center max-w-md">
-                  <Film size={48} className="text-accent/60 mx-auto mb-4 animate-bounce" />
-                  <h3 className="text-lg font-semibold text-text-primary mb-2">Demo Video Preview</h3>
-                  <p className="text-xs text-text-secondary mb-6">
-                    If your browser requires manual video playback permissions or custom media stream codecs, open the video stream directly below.
-                  </p>
-                  <div className="flex justify-center gap-3">
-                    <a
-                      href={demoVideoUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-black font-semibold text-xs hover:bg-accent/90 transition-colors"
-                    >
-                      <Play size={14} className="fill-black" /> Open Video File
-                    </a>
-                    <button
-                      onClick={() => setVideoError(false)}
-                      className="px-4 py-2 rounded-lg bg-surface border border-border text-text-secondary font-medium text-xs hover:bg-surface-hover transition-colors"
-                    >
-                      Retry Loading
-                    </button>
-                  </div>
-                </div>
-              )}
+            {/* Video Player Container (YouTube Embed) */}
+            <div className="relative aspect-video bg-black/90 flex items-center justify-center overflow-hidden">
+              <iframe
+                src="https://www.youtube-nocookie.com/embed/kalhLdnn48U?autoplay=1&mute=1&loop=1&playlist=kalhLdnn48U&controls=1&rel=0&modestbranding=1"
+                title="BlackBox COO Demo Video"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+                className="w-full h-full border-0 shadow-2xl"
+              />
             </div>
 
             {/* Highlights Bar */}
