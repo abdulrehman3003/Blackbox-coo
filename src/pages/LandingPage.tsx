@@ -6,7 +6,7 @@ import {
   BrainCircuit, TrendingUp, Zap, GraduationCap, Building2,
   Menu, X, ChevronDown, Quote, Clock, Target, Star,
   HelpCircle, Layers, MessageSquareText,
-  Bot, Activity,
+  Bot, Activity, Play, Pause, Video, MonitorPlay, Film,
 } from "lucide-react";
 import { Globe, Share2, Code2 } from "lucide-react";
 import Button from "../components/ui/Button";
@@ -238,6 +238,7 @@ export default function LandingPage() {
           {/* Desktop nav — landing sections */}
           <nav className="hidden md:flex items-center gap-1" aria-label="Landing page sections">
             {[
+              { label: "Demo", id: "demo" },
               { label: "Features", id: "features" },
               { label: "How It Works", id: "how-it-works" },
               { label: "Pricing", id: "pricing" },
@@ -281,7 +282,7 @@ export default function LandingPage() {
               <div>
                 <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wider mb-2">On this page</p>
                 <div className="flex flex-wrap gap-2">
-                  {["Features", "How It Works", "Pricing", "FAQ"].map((item) => (
+                  {["Demo", "Features", "How It Works", "Pricing", "FAQ"].map((item) => (
                     <button key={item} onClick={() => scrollTo(item.toLowerCase().replace(/\s+/g, "-"))}
                       className="text-sm text-text-secondary hover:text-text-primary transition-colors px-3 py-1.5 rounded-lg bg-surface hover:bg-surface-hover cursor-pointer">
                       {item}
@@ -322,9 +323,9 @@ export default function LandingPage() {
         </div>
 
         <div className="relative z-10 max-w-4xl mx-auto text-center animate-fade-in">
-          <button onClick={() => scrollTo("features")}
+          <button onClick={() => scrollTo("demo")}
             className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-accent/10 border border-accent/20 text-accent text-xs font-medium mb-8 hover:bg-accent/15 transition-colors cursor-pointer">
-            <Sparkles size={12} /> Your Virtual COO <ChevronRight size={12} />
+            <Sparkles size={12} /> Watch Demo Video <ChevronRight size={12} />
           </button>
 
           <h1 className="text-4xl sm:text-5xl md:text-7xl font-bold text-text-primary tracking-tight leading-[1.1]">
@@ -342,7 +343,7 @@ export default function LandingPage() {
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mt-10">
             <Button variant="primary" size="lg" icon={Sparkles} onClick={() => navigate("/login")}>Get Started Free</Button>
-            <Button variant="ghost" size="lg" icon={ArrowRight} onClick={() => scrollTo("features")}>See Features</Button>
+            <Button variant="outline" size="lg" icon={Play} onClick={() => scrollTo("demo")}>Watch Demo</Button>
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-6 mt-12 text-xs text-text-muted">
@@ -427,6 +428,76 @@ export default function LandingPage() {
                 <ChevronRight size={16} className="text-text-muted ml-auto group-hover:text-accent group-hover:translate-x-0.5 transition-all" />
               </button>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ─── DEMO VIDEO ─── */}
+      <section id="demo" className="relative py-24 sm:py-32 px-6">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[500px] bg-accent-glow rounded-full blur-[160px] pointer-events-none opacity-40" />
+        <div className="max-w-5xl mx-auto relative z-10">
+          <div className="text-center max-w-2xl mx-auto mb-12">
+            <SectionBadge icon={Video} label="Interactive Walkthrough" />
+            <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold text-text-primary tracking-tight">
+              Watch BlackBox COO <span className="text-accent">in Action</span>
+            </h2>
+            <p className="mt-4 text-base text-text-secondary leading-relaxed">
+              See how our multi-agent AI engine analyzes sales, tracks cash flow, detects inventory risks, and generates executive business reports.
+            </p>
+          </div>
+
+          {/* Video Workstation Frame */}
+          <div className="relative rounded-2xl glass-card border border-accent/30 shadow-[0_0_50px_rgba(158,255,0,0.12)] overflow-hidden transition-all duration-300">
+            {/* Top Bar Chrome */}
+            <div className="flex items-center justify-between px-4 py-3 bg-surface/80 border-b border-border/60 backdrop-blur-md">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-danger/80" />
+                <div className="w-3 h-3 rounded-full bg-warning/80" />
+                <div className="w-3 h-3 rounded-full bg-success/80" />
+                <span className="ml-2 text-xs font-mono text-text-muted hidden sm:inline-block">
+                  blackbox-coo-demo.mp4
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-accent/10 border border-accent/20 text-accent text-[11px] font-medium font-mono">
+                  <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+                  PRODUCT DEMO VIDEO
+                </span>
+              </div>
+            </div>
+
+            {/* Video Player Container */}
+            <div className="relative aspect-video bg-black/90 flex items-center justify-center">
+              <video
+                src="/demo.mp4"
+                controls
+                autoPlay
+                muted
+                loop
+                playsInline
+                preload="metadata"
+                className="w-full h-full object-contain rounded-b-2xl shadow-2xl"
+              >
+                Your browser does not support the video tag.
+              </video>
+            </div>
+
+            {/* Highlights Bar */}
+            <div className="grid grid-cols-2 md:grid-cols-4 divide-y md:divide-y-0 md:divide-x divide-border/40 bg-surface/60 border-t border-border/50 text-left">
+              {[
+                { title: "Multi-Agent Engine", desc: "Sales, Finance & Inventory AI" },
+                { title: "Executive Dashboard", desc: "Live health scores & metrics" },
+                { title: "Smart Inventory Alerts", desc: "Automated stock tracking" },
+                { title: "AI Assistant", desc: "Ask operational questions" },
+              ].map((item, idx) => (
+                <div key={idx} className="p-4 hover:bg-accent/5 transition-colors">
+                  <p className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
+                    <Sparkles size={13} className="text-accent" /> {item.title}
+                  </p>
+                  <p className="text-[11px] text-text-muted mt-0.5">{item.desc}</p>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </section>
