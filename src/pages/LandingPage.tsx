@@ -213,7 +213,11 @@ export default function LandingPage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [annualBilling, setAnnualBilling] = useState(false);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
+  const [videoError, setVideoError] = useState(false);
   const visibleSections = useScrollAnimation();
+
+  const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, "");
+  const demoVideoUrl = `${baseUrl}/demo.mp4`;
 
   const scrollTo = useCallback((id: string) => {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
@@ -468,18 +472,47 @@ export default function LandingPage() {
 
             {/* Video Player Container */}
             <div className="relative aspect-video bg-black/90 flex items-center justify-center">
-              <video
-                src="/demo.mp4"
-                controls
-                autoPlay
-                muted
-                loop
-                playsInline
-                preload="metadata"
-                className="w-full h-full object-contain rounded-b-2xl shadow-2xl"
-              >
-                Your browser does not support the video tag.
-              </video>
+              {!videoError ? (
+                <video
+                  controls
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                  preload="auto"
+                  onError={() => setVideoError(true)}
+                  className="w-full h-full object-contain shadow-2xl"
+                >
+                  <source src={demoVideoUrl} type="video/mp4" />
+                  <source src="./demo.mp4" type="video/mp4" />
+                  <source src="/demo.mp4" type="video/mp4" />
+                  Your browser does not support the HTML5 video tag.
+                </video>
+              ) : (
+                <div className="p-8 text-center max-w-md">
+                  <Film size={48} className="text-accent/60 mx-auto mb-4 animate-bounce" />
+                  <h3 className="text-lg font-semibold text-text-primary mb-2">Demo Video Preview</h3>
+                  <p className="text-xs text-text-secondary mb-6">
+                    If your browser requires manual video playback permissions or custom media stream codecs, open the video stream directly below.
+                  </p>
+                  <div className="flex justify-center gap-3">
+                    <a
+                      href={demoVideoUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-black font-semibold text-xs hover:bg-accent/90 transition-colors"
+                    >
+                      <Play size={14} className="fill-black" /> Open Video File
+                    </a>
+                    <button
+                      onClick={() => setVideoError(false)}
+                      className="px-4 py-2 rounded-lg bg-surface border border-border text-text-secondary font-medium text-xs hover:bg-surface-hover transition-colors"
+                    >
+                      Retry Loading
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Highlights Bar */}
